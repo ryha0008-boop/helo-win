@@ -172,8 +172,7 @@ fn launch(runtime: &str, provider: &str, model: &str, env_dir: &Path, extra: &[S
             c
         }
         "pi" => {
-            // On Windows, npm CLI wrappers are .cmd files and must be invoked
-            // through cmd.exe — Command::new("pi") won't find pi.cmd directly.
+            // On Windows, npm CLI wrappers are .cmd files — must go through cmd.exe.
             let key_env = provider_key_env(provider);
             let api_key = std::env::var(&key_env).unwrap_or_default();
             let mut pi_args = format!(

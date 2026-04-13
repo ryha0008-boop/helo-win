@@ -40,6 +40,9 @@ enum Commands {
     Run {
         /// Blueprint name (omit if there is only one instance in the current directory)
         name: Option<String>,
+        /// Resume a specific session by ID (omit ID to continue most recent session)
+        #[arg(short, long)]
+        resume: Option<Option<String>>,
         /// Extra args passed through to the runtime binary
         #[arg(last = true)]
         extra: Vec<String>,
@@ -69,7 +72,7 @@ fn run() -> Result<()> {
         Commands::Add { name, runtime, provider, model } => cmd_add(name, runtime, provider, model),
         Commands::List => cmd_list(),
         Commands::Remove { name } => cmd_remove(name),
-        Commands::Run { name, extra } => cmd_run(name, extra),
+        Commands::Run { name, resume, extra } => cmd_run(name, resume, extra),
         Commands::Status => cmd_status(),
         Commands::Clean { runtime, yes } => cmd_clean(&runtime, yes),
     }
@@ -113,7 +116,7 @@ fn cmd_remove(name: String) -> Result<()> {
     Ok(())
 }
 
-fn cmd_run(name: Option<String>, extra: Vec<String>) -> Result<()> {
+fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<String>) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let cfg = config::load()?;
 
@@ -137,7 +140,7 @@ fn cmd_run(name: Option<String>, extra: Vec<String>) -> Result<()> {
                 project::save_instance(&env_dir, &inst)?;
                 println!("Created: {}", env_dir.display());
             }
-            launch(&bp.runtime, &bp.provider, &bp.model, &env_dir, &extra)
+            launch(&bp.runtime, &bp.provider, &bp.model, &env_dir, resume.as_ref(), &extra)
         }
         None => {
             // No name: auto-detect from instances already placed in cwd.
@@ -150,7 +153,7 @@ fn cmd_run(name: Option<String>, extra: Vec<String>) -> Result<()> {
                 ),
                 1 => {
                     let (env_dir, inst) = &instances[0];
-                    launch(&inst.runtime, &inst.provider, &inst.model, env_dir, &extra)
+                    launch(&inst.runtime, &inst.provider, &inst.model, env_dir, resume.as_ref(), &extra)
                 }
                 _ => {
                     eprintln!("Multiple instances in current directory:");
@@ -164,11 +167,19 @@ fn cmd_run(name: Option<String>, extra: Vec<String>) -> Result<()> {
     }
 }
 
-fn launch(runtime: &str, provider: &str, model: &str, env_dir: &Path, extra: &[String]) -> Result<()> {
+fn launch(runtime: &str, provider: &str, model: &str, env_dir: &Path, resume: Option<&Option<String>>, extra: &[String]) -> Result<()> {
     let mut cmd = match runtime {
         "claude" => {
             let mut c = std::process::Command::new("claude");
             c.env("CLAUDE_CONFIG_DIR", env_dir);
+            // --resume <id>  → resume specific session
+            // --resume       → --continue (most recent)
+            if let Some(r) = resume {
+                match r {
+                    Some(id) => { c.args(["--resume", id]); }
+                    None     => { c.arg("--continue"); }
+                }
+            }
             c
         }
         "pi" => {
@@ -180,6 +191,10 @@ fn launch(runtime: &str, provider: &str, model: &str, env_dir: &Path, extra: &[S
             );
             if !api_key.is_empty() {
                 pi_args.push_str(&format!(" --api-key {api_key}"));
+            }
+            // pi resume: pass through as-is if a session id is given
+            if let Some(Some(id)) = resume {
+                pi_args.push_str(&format!(" --resume {id}"));
             }
             for arg in extra {
                 pi_args.push(' ');
@@ -199,6 +214,9 @@ fn launch(runtime: &str, provider: &str, model: &str, env_dir: &Path, extra: &[S
         "opencode" => {
             let mut c = std::process::Command::new("opencode");
             c.env("OPENCODE_CONFIG", env_dir);
+            if let Some(Some(id)) = resume {
+                c.args(["--continue", id]);
+            }
             c
         }
         other => bail!("unknown runtime '{other}'. Supported: pi, claude, opencode"),

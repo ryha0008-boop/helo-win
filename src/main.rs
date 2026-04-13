@@ -46,6 +46,14 @@ enum Commands {
     },
     /// Show config location and API key status
     Status,
+    /// Remove a runtime's global config directory (clean reinstall)
+    Clean {
+        /// Runtime to clean: pi, claude, or opencode
+        runtime: String,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
 }
 
 fn main() {
@@ -63,6 +71,7 @@ fn run() -> Result<()> {
         Commands::Remove { name } => cmd_remove(name),
         Commands::Run { name, extra } => cmd_run(name, extra),
         Commands::Status => cmd_status(),
+        Commands::Clean { runtime, yes } => cmd_clean(&runtime, yes),
     }
 }
 
@@ -205,6 +214,45 @@ fn provider_key_env(provider: &str) -> String {
         other        => return format!("{}_API_KEY", other.to_uppercase()),
     }
     .to_string()
+}
+
+fn cmd_clean(runtime: &str, yes: bool) -> Result<()> {
+    let home = directories::BaseDirs::new()
+        .context("could not determine home directory")?
+        .home_dir()
+        .to_path_buf();
+
+    let global_dir = match runtime {
+        "pi" => home.join(".pi"),
+        "claude" => home.join(".claude"),
+        "opencode" => home.join(".opencode"),
+        other => bail!("unknown runtime '{other}'. Supported: pi, claude, opencode"),
+    };
+
+    if !global_dir.exists() {
+        println!("Nothing to clean — {} does not exist.", global_dir.display());
+        return Ok(());
+    }
+
+    if !yes {
+        print!(
+            "Delete {} and all its contents? [y/N] ",
+            global_dir.display()
+        );
+        use std::io::Write;
+        std::io::stdout().flush()?;
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            println!("Aborted.");
+            return Ok(());
+        }
+    }
+
+    std::fs::remove_dir_all(&global_dir)
+        .with_context(|| format!("could not remove {}", global_dir.display()))?;
+    println!("Removed {}.", global_dir.display());
+    Ok(())
 }
 
 fn cmd_status() -> Result<()> {

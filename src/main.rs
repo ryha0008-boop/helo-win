@@ -164,7 +164,7 @@ fn launch(runtime: &str, provider: &str, model: &str, env_dir: &Path, extra: &[S
         }
         "pi" => {
             let mut c = std::process::Command::new("pi");
-            c.env("PI_CONFIG_DIR", env_dir);
+            c.env("PI_CODING_AGENT_DIR", env_dir);
             c.args(["--provider", provider, "--model", model]);
             // Pass API key from environment if set.
             let key_env = provider_key_env(provider);

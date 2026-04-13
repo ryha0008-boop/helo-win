@@ -172,18 +172,30 @@ fn launch(runtime: &str, provider: &str, model: &str, env_dir: &Path, extra: &[S
             c
         }
         "pi" => {
-            let mut c = std::process::Command::new("pi");
-            eprintln!("DEBUG: PI_CODING_AGENT_DIR = {}", env_dir.display());
-            c.env("PI_CODING_AGENT_DIR", env_dir);
-            c.args(["--provider", provider, "--model", model]);
-            // Pass API key from environment if set.
+            // On Windows, npm CLI wrappers are .cmd files and must be invoked
+            // through cmd.exe — Command::new("pi") won't find pi.cmd directly.
             let key_env = provider_key_env(provider);
-            if let Ok(key) = std::env::var(&key_env) {
-                if !key.is_empty() {
-                    c.args(["--api-key", &key]);
-                }
+            let api_key = std::env::var(&key_env).unwrap_or_default();
+            let mut pi_args = format!(
+                "pi --provider {provider} --model {model}"
+            );
+            if !api_key.is_empty() {
+                pi_args.push_str(&format!(" --api-key {api_key}"));
             }
-            c
+            for arg in extra {
+                pi_args.push(' ');
+                pi_args.push_str(arg);
+            }
+            let mut c = std::process::Command::new("cmd");
+            c.env("PI_CODING_AGENT_DIR", env_dir);
+            c.args(["/c", &pi_args]);
+            // extra already embedded above; skip the outer cmd.args(extra) call
+            let code = c
+                .status()
+                .with_context(|| "could not launch pi via cmd.exe")?
+                .code()
+                .unwrap_or(1);
+            std::process::exit(code);
         }
         "opencode" => {
             let mut c = std::process::Command::new("opencode");

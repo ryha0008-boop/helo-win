@@ -110,7 +110,12 @@ npm run dev      # vite + electron with hot reload
 ```
 cd gui
 npm run build    # tsc main + vite renderer → dist/
-npm run app      # run packaged dist/
+npm run app      # run packaged dist/ (NODE_ENV=production)
 ```
+
+**Shell picker:**
+- Left-click `+` in titlebar → new terminal with default shell
+- Right-click `+` → context menu: pick shell or set default
+- Default shell persisted in settings.json (Electron userData)
 
 `helo` must be on PATH for the bridge to work.

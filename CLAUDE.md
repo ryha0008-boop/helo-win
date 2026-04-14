@@ -120,9 +120,15 @@ npm run app      # run packaged dist/ (NODE_ENV=production)
 
 **Pane layout (up to 4 simultaneously):**
 - Each session is a standalone sidebar tab — no parent/child hierarchy
-- Clicking a session in sidebar adds it to next free pane slot (or focuses if already visible)
+- Clicking a session in sidebar replaces the currently active pane slot (adds to free slot if < 4)
 - 1 pane=full, 2=side by side, 3=left tall+right split, 4=2×2 grid
+- Panes are resizable: drag the divider between panes (col divider at ≥2 panes, row at ≥3)
 - Each pane bar has session name + × to remove from grid (session stays in sidebar)
-- Pane number badge shown on sidebar session tiles
+
+**Session auto-grouping:**
+- When 5th terminal is opened, the first 4 auto-group into "Group 1" (collapsed) in the sidebar
+- Pattern repeats: 9th terminal groups 5–8 into "Group 2", etc.
+- Click group header to expand/collapse; right-click to rename or delete
+- Right-click any session to manually move it to a group
 
 `helo` must be on PATH for the bridge to work.

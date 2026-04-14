@@ -140,6 +140,14 @@ enum DefaultsCommands {
 }
 
 fn main() {
+    // No subcommand → interactive mode
+    if std::env::args().len() == 1 {
+        if let Err(e) = run_interactive() {
+            eprintln!("error: {e:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if let Err(e) = run() {
         eprintln!("error: {e:#}");
         std::process::exit(1);
@@ -279,9 +287,8 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<Stri
     let cwd = std::env::current_dir()?;
     let cfg = config::load()?;
 
-    match name {
+    let code = match name {
         Some(n) => {
-            // Named: place if needed, then run.
             let bp = cfg
                 .blueprints
                 .iter()
@@ -307,10 +314,9 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<Stri
                 project::save_instance(&env_dir, &inst, claude_md_content.as_deref())?;
                 println!("Created: {}", env_dir.display());
             }
-            launch(&bp.runtime, &bp.provider, &bp.model, bp.api_key.as_deref(), &env_dir, resume.as_ref(), &extra)
+            launch(&bp.runtime, &bp.provider, &bp.model, bp.api_key.as_deref(), &env_dir, resume.as_ref(), &extra)?
         }
         None => {
-            // No name: auto-detect from instances already placed in cwd.
             let instances = project::find_instances(&cwd);
             match instances.len() {
                 0 => bail!(
@@ -320,7 +326,7 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<Stri
                 ),
                 1 => {
                     let (env_dir, inst) = &instances[0];
-                    launch(&inst.runtime, &inst.provider, &inst.model, inst.api_key.as_deref(), env_dir, resume.as_ref(), &extra)
+                    launch(&inst.runtime, &inst.provider, &inst.model, inst.api_key.as_deref(), env_dir, resume.as_ref(), &extra)?
                 }
                 _ => {
                     eprintln!("Multiple instances in current directory:");
@@ -331,16 +337,17 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<Stri
                 }
             }
         }
-    }
+    };
+
+    std::process::exit(code);
 }
 
-fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env_dir: &Path, resume: Option<&Option<String>>, extra: &[String]) -> Result<()> {
-    let mut cmd = match runtime {
+fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env_dir: &Path, resume: Option<&Option<String>>, extra: &[String]) -> Result<i32> {
+    match runtime {
         "claude" => {
             let mut c = std::process::Command::new("claude");
             c.env("CLAUDE_CONFIG_DIR", env_dir);
 
-            // Provider-specific API routing for claude runtime.
             match provider {
                 "zai" => {
                     c.env("ANTHROPIC_BASE_URL", "https://api.z.ai/api/anthropic");
@@ -351,40 +358,37 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
                     if !key.is_empty() {
                         c.env("ANTHROPIC_AUTH_TOKEN", &key);
                     }
-                    // Route all Claude model tiers to the blueprint model (default: glm-5.1).
                     c.env("ANTHROPIC_DEFAULT_HAIKU_MODEL", model);
                     c.env("ANTHROPIC_DEFAULT_SONNET_MODEL", model);
                     c.env("ANTHROPIC_DEFAULT_OPUS_MODEL", model);
                 }
                 _ => {
-                    // Default Anthropic — use stored key or ANTHROPIC_API_KEY env var.
                     if let Some(key) = api_key.filter(|k| !k.is_empty()) {
                         c.env("ANTHROPIC_API_KEY", key);
                     }
                 }
             }
 
-            // --resume <id>  → resume specific session
-            // --resume       → --continue (most recent)
             if let Some(r) = resume {
                 match r {
                     Some(id) => { c.args(["--resume", id]); }
                     None     => { c.arg("--continue"); }
                 }
             }
-            c
+            c.args(extra);
+
+            let status = c
+                .status()
+                .with_context(|| "could not launch 'claude' — is it installed and in PATH?")?;
+            Ok(status.code().unwrap_or(1))
         }
         "pi" => {
-            // On Windows, npm CLI wrappers are .cmd files — must go through cmd.exe.
             let key_env = provider_key_env(provider);
-            let api_key = std::env::var(&key_env).unwrap_or_default();
-            let mut pi_args = format!(
-                "pi --provider {provider} --model {model}"
-            );
-            if !api_key.is_empty() {
-                pi_args.push_str(&format!(" --api-key {api_key}"));
+            let api_key_val = std::env::var(&key_env).unwrap_or_default();
+            let mut pi_args = format!("pi --provider {provider} --model {model}");
+            if !api_key_val.is_empty() {
+                pi_args.push_str(&format!(" --api-key {api_key_val}"));
             }
-            // pi resume: pass through as-is if a session id is given
             if let Some(Some(id)) = resume {
                 pi_args.push_str(&format!(" --resume {id}"));
             }
@@ -395,13 +399,10 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
             let mut c = std::process::Command::new("cmd");
             c.env("PI_CODING_AGENT_DIR", env_dir);
             c.args(["/c", &pi_args]);
-            // extra already embedded above; skip the outer cmd.args(extra) call
-            let code = c
+            let status = c
                 .status()
-                .with_context(|| "could not launch pi via cmd.exe")?
-                .code()
-                .unwrap_or(1);
-            std::process::exit(code);
+                .with_context(|| "could not launch pi via cmd.exe")?;
+            Ok(status.code().unwrap_or(1))
         }
         "opencode" => {
             let mut c = std::process::Command::new("opencode");
@@ -409,18 +410,14 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
             if let Some(Some(id)) = resume {
                 c.args(["--continue", id]);
             }
-            c
+            c.args(extra);
+            let status = c
+                .status()
+                .with_context(|| "could not launch 'opencode' — is it installed and in PATH?")?;
+            Ok(status.code().unwrap_or(1))
         }
         other => bail!("unknown runtime '{other}'. Supported: pi, claude, opencode"),
-    };
-
-    cmd.args(extra);
-
-    let status = cmd
-        .status()
-        .with_context(|| format!("could not launch '{runtime}' — is it installed and in PATH?"))?;
-
-    std::process::exit(status.code().unwrap_or(1));
+    }
 }
 
 fn provider_key_env(provider: &str) -> String {
@@ -544,4 +541,248 @@ fn cmd_status(json: bool) -> Result<()> {
         println!("  {:<20} {}", label, status);
     }
     Ok(())
+}
+
+// ── Interactive mode ─────────────────────────────────────────────────────────
+
+fn iread(prompt_str: &str) -> Result<String> {
+    use std::io::Write;
+    print!("{}", prompt_str);
+    std::io::stdout().flush()?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    Ok(line.trim().to_string())
+}
+
+fn run_interactive() -> Result<()> {
+    println!("helo — AI agent environment manager  (q to quit)");
+    loop {
+        let cfg = config::load()?;
+        println!();
+        println!("─────────────────────────────────────────────");
+        if cfg.blueprints.is_empty() {
+            println!("  (no blueprints)");
+        } else {
+            for (i, b) in cfg.blueprints.iter().enumerate() {
+                let md = b.claude_md.as_deref()
+                    .map(|p| std::path::Path::new(p).file_stem()
+                        .and_then(|n| n.to_str()).unwrap_or(p))
+                    .map(|n| format!(" [{}]", n))
+                    .unwrap_or_default();
+                println!("  {}  {}  ({} / {} / {}{})", i + 1, b.name, b.runtime, b.provider, b.model, md);
+            }
+        }
+        println!();
+        println!("  a  add blueprint     d  delete blueprint");
+        println!("  s  status            t  templates");
+        println!("  c  clean runtime     x  defaults");
+        println!("  q  quit");
+        println!();
+
+        let input = iread("number to run, or letter: ")?;
+        if input.is_empty() { continue; }
+
+        if let Ok(n) = input.parse::<usize>() {
+            if n >= 1 && n <= cfg.blueprints.len() {
+                // Clone to drop borrow on cfg before passing to interactive_run
+                let bp = cfg.blueprints[n - 1].clone();
+                if let Err(e) = interactive_run(&bp) {
+                    println!("error: {e:#}");
+                }
+            } else {
+                println!("No blueprint #{}.", n);
+            }
+            continue;
+        }
+
+        match input.to_lowercase().as_str() {
+            "a" => { if let Err(e) = interactive_add()     { println!("error: {e:#}"); } }
+            "d" => {
+                if cfg.blueprints.is_empty() {
+                    println!("No blueprints to delete.");
+                } else if let Err(e) = interactive_delete() {
+                    println!("error: {e:#}");
+                }
+            }
+            "s" => { if let Err(e) = cmd_status(false)        { println!("error: {e:#}"); } }
+            "t" => { if let Err(e) = interactive_templates()  { println!("error: {e:#}"); } }
+            "c" => { if let Err(e) = interactive_clean()      { println!("error: {e:#}"); } }
+            "x" => { if let Err(e) = interactive_defaults()   { println!("error: {e:#}"); } }
+            "q" | "quit" | "exit" => break,
+            _ => println!("Unknown: '{input}'"),
+        }
+    }
+    Ok(())
+}
+
+fn interactive_run(bp: &models::Blueprint) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let dir_input = iread(&format!("Project dir [{}]: ", cwd.display()))?;
+    let project_dir = if dir_input.is_empty() {
+        cwd
+    } else {
+        std::path::PathBuf::from(&dir_input)
+    };
+    if !project_dir.exists() {
+        bail!("directory does not exist: {}", project_dir.display());
+    }
+
+    let resume_input = iread("Resume? [y=most-recent / session-id / blank=no]: ")?;
+    let resume: Option<Option<String>> = match resume_input.to_lowercase().as_str() {
+        "" | "n" | "no" => None,
+        "y" | "yes"     => Some(None),
+        id              => Some(Some(id.to_string())),
+    };
+
+    let extra_input = iread("Extra args (e.g. -p \"prompt\") [blank=none]: ")?;
+    let extra = if extra_input.is_empty() { vec![] } else { shell_split(&extra_input) };
+
+    let env_dir = project::env_dir(&project_dir, &bp.runtime, &bp.name);
+    if !env_dir.exists() {
+        let inst = models::Instance {
+            name: bp.name.clone(),
+            runtime: bp.runtime.clone(),
+            provider: bp.provider.clone(),
+            model: bp.model.clone(),
+            api_key: bp.api_key.clone(),
+        };
+        let claude_md_content = match &bp.claude_md {
+            Some(path) => Some(
+                std::fs::read_to_string(path)
+                    .with_context(|| format!("could not read --claude-md file: {path}"))?
+            ),
+            None => None,
+        };
+        project::save_instance(&env_dir, &inst, claude_md_content.as_deref())?;
+        println!("Created: {}", env_dir.display());
+    }
+
+    let code = launch(&bp.runtime, &bp.provider, &bp.model, bp.api_key.as_deref(), &env_dir, resume.as_ref(), &extra)?;
+    if code != 0 {
+        println!("Process exited with code {}.", code);
+    }
+    Ok(())
+}
+
+fn interactive_add() -> Result<()> {
+    println!("Add blueprint");
+    let name = iread("Name: ")?;
+    if name.is_empty() { bail!("name required"); }
+
+    let runtime = iread("Runtime [claude/pi/opencode]: ")?;
+    if runtime.is_empty() { bail!("runtime required"); }
+
+    let provider = iread("Provider [anthropic/zai/openrouter/openai]: ")?;
+    if provider.is_empty() { bail!("provider required"); }
+
+    let model = iread("Model: ")?;
+    if model.is_empty() { bail!("model required"); }
+
+    let api_key_input = iread("API key [blank = use env var]: ")?;
+    let api_key = if api_key_input.is_empty() { None } else { Some(api_key_input) };
+
+    let claude_md_input = if runtime == "claude" {
+        let v = iread("CLAUDE.md [coding/assistant/devops or file path, blank=none]: ")?;
+        if v.is_empty() { None } else { Some(v) }
+    } else {
+        None
+    };
+
+    cmd_add(name, runtime, provider, model, api_key, claude_md_input)
+}
+
+fn interactive_delete() -> Result<()> {
+    let cfg = config::load()?;
+    println!("Delete blueprint:");
+    for (i, b) in cfg.blueprints.iter().enumerate() {
+        println!("  {}  {}", i + 1, b.name);
+    }
+    let input = iread("Number [blank=cancel]: ")?;
+    if input.is_empty() { return Ok(()); }
+    let n: usize = input.parse().context("enter a number")?;
+    if n < 1 || n > cfg.blueprints.len() { bail!("no blueprint #{n}"); }
+    let name = cfg.blueprints[n - 1].name.clone();
+    let confirm = iread(&format!("Delete '{name}'? [y/N]: "))?;
+    if confirm.eq_ignore_ascii_case("y") {
+        cmd_remove(name)?;
+    } else {
+        println!("Aborted.");
+    }
+    Ok(())
+}
+
+fn interactive_templates() -> Result<()> {
+    loop {
+        println!();
+        for t in TEMPLATES {
+            println!("  {}", t.name);
+        }
+        println!();
+        println!("  show <name>   print template content");
+        println!("  init          write templates to config dir");
+        println!("  q             back");
+        let input = iread("> ")?;
+        let lower = input.to_lowercase();
+        match lower.as_str() {
+            "q" | "" => break,
+            "init" => {
+                ensure_templates()?;
+                println!("Templates written to: {}", config::templates_dir()?.display());
+            }
+            s if s.starts_with("show ") => {
+                let name = s["show ".len()..].trim();
+                if let Err(e) = cmd_templates_show(name) { println!("error: {e}"); }
+            }
+            _ => println!("Unknown: '{input}'"),
+        }
+    }
+    Ok(())
+}
+
+fn interactive_clean() -> Result<()> {
+    let runtime = iread("Runtime to clean [claude/pi/opencode, blank=cancel]: ")?;
+    if runtime.is_empty() { return Ok(()); }
+    cmd_clean(&runtime, false)
+}
+
+fn interactive_defaults() -> Result<()> {
+    loop {
+        println!();
+        println!("  show <runtime>        — print current defaults");
+        println!("  set <runtime> <path>  — set defaults from file");
+        println!("  q                     — back");
+        let input = iread("> ")?;
+        let parts: Vec<&str> = input.splitn(3, ' ').collect();
+        match parts.as_slice() {
+            [cmd] if cmd.eq_ignore_ascii_case("q") || cmd.is_empty() => break,
+            ["show", runtime] | ["show", runtime, _] => {
+                if let Err(e) = cmd_defaults_show(runtime) { println!("error: {e}"); }
+            }
+            ["set", runtime, path] => {
+                if let Err(e) = cmd_defaults_set(runtime, path) { println!("error: {e}"); }
+            }
+            _ => println!("Unknown: '{input}'"),
+        }
+    }
+    Ok(())
+}
+
+/// Basic shell-like split — handles double-quoted strings.
+fn shell_split(s: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_quote = false;
+    for c in s.chars() {
+        match c {
+            '"' => in_quote = !in_quote,
+            ' ' if !in_quote => {
+                if !current.is_empty() {
+                    args.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(c),
+        }
+    }
+    if !current.is_empty() { args.push(current); }
+    args
 }

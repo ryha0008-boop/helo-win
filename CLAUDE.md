@@ -46,6 +46,17 @@ helo defaults set <runtime> <settings.json>   # save as global default for new e
 helo defaults show <runtime>                  # show current default
 ```
 
+## Non-interactive / headless use
+
+Pass extra args after `--` — they go directly to the runtime binary:
+
+```
+helo run mazas-bahuras -- -p "your prompt"
+helo run mazas-bahuras -- -p "your prompt" --output-format json
+```
+
+Claude's `-p` / `--print` flag runs a single prompt and exits. All helo isolation (CLAUDE_CONFIG_DIR, settings, memory) still applies. Useful for orchestration by another AI or automation scripts.
+
 ## Default settings
 
 New Claude envs copy `<helo_config>/defaults/claude.json` if it exists, otherwise use the built-in template. Set your defaults once with:

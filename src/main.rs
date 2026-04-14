@@ -103,6 +103,13 @@ enum Commands {
         #[command(subcommand)]
         sub: DefaultsCommands,
     },
+    /// Set or replace the API key stored in a blueprint
+    Key {
+        /// Blueprint name
+        name: String,
+        /// The key value (pass empty string "" to clear)
+        key: String,
+    },
     /// List or show built-in CLAUDE.md templates
     Templates {
         #[command(subcommand)]
@@ -160,6 +167,7 @@ fn run() -> Result<()> {
         Commands::Add { name, runtime, provider, model, api_key, claude_md } => cmd_add(name, runtime, provider, model, api_key, claude_md),
         Commands::List { json } => cmd_list(json),
         Commands::Remove { name } => cmd_remove(name),
+        Commands::Key { name, key } => cmd_key(name, key),
         Commands::Run { name, resume, extra } => cmd_run(name, resume, extra),
         Commands::Status { json } => cmd_status(json),
         Commands::Clean { runtime, yes } => cmd_clean(&runtime, yes),
@@ -280,6 +288,23 @@ fn cmd_remove(name: String) -> Result<()> {
     }
     config::save(&cfg)?;
     println!("Removed '{name}'.");
+    Ok(())
+}
+
+fn cmd_key(name: String, key: String) -> Result<()> {
+    let mut cfg = config::load()?;
+    let bp = cfg.blueprints.iter_mut()
+        .find(|b| b.name == name)
+        .with_context(|| format!("no blueprint named '{name}'. Run: helo list"))?;
+    if key.is_empty() {
+        bp.api_key = None;
+        config::save(&cfg)?;
+        println!("Cleared api_key for '{name}'.");
+    } else {
+        bp.api_key = Some(key);
+        config::save(&cfg)?;
+        println!("Updated api_key for '{name}'.");
+    }
     Ok(())
 }
 
@@ -581,9 +606,9 @@ fn run_interactive() -> Result<()> {
         }
         println!();
         println!("  a  add blueprint     d  delete blueprint");
-        println!("  s  status            t  templates");
-        println!("  c  clean runtime     x  defaults");
-        println!("  q  quit");
+        println!("  k  set api key       s  status");
+        println!("  t  templates         c  clean runtime");
+        println!("  x  defaults          q  quit");
         println!();
 
         let input = iread("number to run, or letter: ")?;
@@ -604,6 +629,13 @@ fn run_interactive() -> Result<()> {
 
         match input.to_lowercase().as_str() {
             "a" => { if let Err(e) = interactive_add()     { println!("error: {e:#}"); } }
+            "k" => {
+                if cfg.blueprints.is_empty() {
+                    println!("No blueprints.");
+                } else if let Err(e) = interactive_set_key() {
+                    println!("error: {e:#}");
+                }
+            }
             "d" => {
                 if cfg.blueprints.is_empty() {
                     println!("No blueprints to delete.");
@@ -696,6 +728,22 @@ fn interactive_add() -> Result<()> {
     };
 
     cmd_add(name, runtime, provider, model, api_key, claude_md_input)
+}
+
+fn interactive_set_key() -> Result<()> {
+    let cfg = config::load()?;
+    println!("Set API key:");
+    for (i, b) in cfg.blueprints.iter().enumerate() {
+        let has_key = if b.api_key.is_some() { " [key stored]" } else { "" };
+        println!("  {}  {}{}", i + 1, b.name, has_key);
+    }
+    let input = iread("Number [blank=cancel]: ")?;
+    if input.is_empty() { return Ok(()); }
+    let n: usize = input.parse().context("enter a number")?;
+    if n < 1 || n > cfg.blueprints.len() { bail!("no blueprint #{n}"); }
+    let name = cfg.blueprints[n - 1].name.clone();
+    let key = iread(&format!("Key for '{name}' [blank=clear]: "))?;
+    cmd_key(name, key)
 }
 
 fn interactive_delete() -> Result<()> {

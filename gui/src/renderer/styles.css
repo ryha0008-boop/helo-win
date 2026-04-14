@@ -1818,8 +1818,8 @@ html, body, #root {
 /* Pane grid — up to 4 sessions visible simultaneously */
 .pane-grid {
   display: grid;
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   overflow: hidden;
   gap: 2px;
   background: var(--ui-border);

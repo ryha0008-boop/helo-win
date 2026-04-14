@@ -118,4 +118,11 @@ npm run app      # run packaged dist/ (NODE_ENV=production)
 - Right-click `+` → context menu: pick shell or set default
 - Default shell persisted in settings.json (Electron userData)
 
+**Pane layout (up to 4 simultaneously):**
+- Each session is a standalone sidebar tab — no parent/child hierarchy
+- Clicking a session in sidebar adds it to next free pane slot (or focuses if already visible)
+- 1 pane=full, 2=side by side, 3=left tall+right split, 4=2×2 grid
+- Each pane bar has session name + × to remove from grid (session stays in sidebar)
+- Pane number badge shown on sidebar session tiles
+
 `helo` must be on PATH for the bridge to work.

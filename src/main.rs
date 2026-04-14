@@ -384,7 +384,11 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
         }
         "pi" => {
             let key_env = provider_key_env(provider);
-            let api_key_val = std::env::var(&key_env).unwrap_or_default();
+            let api_key_val = api_key
+                .filter(|k| !k.is_empty())
+                .map(str::to_string)
+                .or_else(|| std::env::var(&key_env).ok().filter(|v| !v.is_empty()))
+                .unwrap_or_default();
             let mut pi_args = format!("pi --provider {provider} --model {model}");
             if !api_key_val.is_empty() {
                 pi_args.push_str(&format!(" --api-key {api_key_val}"));
@@ -407,6 +411,9 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
         "opencode" => {
             let mut c = std::process::Command::new("opencode");
             c.env("OPENCODE_CONFIG", env_dir);
+            if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+                c.env(provider_key_env(provider), key);
+            }
             if let Some(Some(id)) = resume {
                 c.args(["--continue", id]);
             }

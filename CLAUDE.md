@@ -85,3 +85,32 @@ Both hooks live in `.claude/settings.json` (project-level) and are seeded into n
 cargo build --release    # requires helo.exe not in use
 cargo install --path .   # installs to ~/.cargo/bin, safe while running
 ```
+
+## GUI (Electron terminal + blueprint panel)
+
+`gui/` is an Electron terminal (xterm.js + node-pty, based on `sidebar-terminal` v2) merged with a helo-aware blueprint panel.
+
+**Architecture:**
+- `gui/src/main/helo-bridge.ts` shells out to `helo` CLI via `execFile`. IPC handlers: `helo:list`, `helo:add`, `helo:remove`, `helo:status`, `helo:defaults-show`.
+- `gui/src/renderer/components/BlueprintPanel.tsx` — modal UI for list/add/remove/launch blueprints.
+- **Launch flow:** user picks blueprint + project dir → App.tsx creates new PTY session → pending init command stashed in `pendingInitCommands` ref → global `pty:ready` listener writes `cd <dir> && helo run <name>\n` when the PTY is ready.
+
+**JSON CLI support (added for GUI consumption):**
+- `helo list --json` — array of blueprints
+- `helo status --json` — config path, blueprint count, API key flags
+
+**Dev:**
+```
+cd gui
+npm install
+npm run dev      # vite + electron with hot reload
+```
+
+**Build:**
+```
+cd gui
+npm run build    # tsc main + vite renderer → dist/
+npm run app      # run packaged dist/
+```
+
+`helo` must be on PATH for the bridge to work.

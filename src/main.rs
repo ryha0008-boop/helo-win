@@ -33,7 +33,11 @@ enum Commands {
         claude_md: Option<String>,
     },
     /// List all blueprints
-    List,
+    List {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Remove a blueprint by name
     Remove {
         name: String,
@@ -51,7 +55,11 @@ enum Commands {
         extra: Vec<String>,
     },
     /// Show config location and API key status
-    Status,
+    Status {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Remove a runtime's global config directory (clean reinstall)
     Clean {
         /// Runtime to clean: pi, claude, or opencode
@@ -94,10 +102,10 @@ fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::Add { name, runtime, provider, model, claude_md } => cmd_add(name, runtime, provider, model, claude_md),
-        Commands::List => cmd_list(),
+        Commands::List { json } => cmd_list(json),
         Commands::Remove { name } => cmd_remove(name),
         Commands::Run { name, resume, extra } => cmd_run(name, resume, extra),
-        Commands::Status => cmd_status(),
+        Commands::Status { json } => cmd_status(json),
         Commands::Clean { runtime, yes } => cmd_clean(&runtime, yes),
         Commands::Defaults { sub } => match sub {
             DefaultsCommands::Set { runtime, path } => cmd_defaults_set(&runtime, &path),
@@ -122,8 +130,25 @@ fn cmd_add(name: String, runtime: String, provider: String, model: String, claud
     Ok(())
 }
 
-fn cmd_list() -> Result<()> {
+fn cmd_list(json: bool) -> Result<()> {
     let cfg = config::load()?;
+    if json {
+        // Emit a stable, minimal JSON array. Hand-rolled to avoid serde_json dep.
+        print!("[");
+        for (i, b) in cfg.blueprints.iter().enumerate() {
+            if i > 0 { print!(","); }
+            print!(
+                "{{\"name\":{},\"runtime\":{},\"provider\":{},\"model\":{},\"claude_md\":{}}}",
+                json_str(&b.name),
+                json_str(&b.runtime),
+                json_str(&b.provider),
+                json_str(&b.model),
+                b.claude_md.as_deref().map(json_str).unwrap_or_else(|| "null".to_string()),
+            );
+        }
+        println!("]");
+        return Ok(());
+    }
     if cfg.blueprints.is_empty() {
         println!("No blueprints. Add one with:");
         println!("  helo add <name> --runtime pi --provider openrouter --model openai/gpt-4o");
@@ -140,6 +165,25 @@ fn cmd_list() -> Result<()> {
         println!("{:<20} {:<10} {:<15} {:<30} {}", b.name, b.runtime, b.provider, b.model, md);
     }
     Ok(())
+}
+
+/// Minimal JSON string encoder — escapes the chars required by RFC 8259.
+fn json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"'  => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 fn cmd_remove(name: String) -> Result<()> {
@@ -355,12 +399,9 @@ fn cmd_defaults_show(runtime: &str) -> Result<()> {
     Ok(())
 }
 
-fn cmd_status() -> Result<()> {
+fn cmd_status(json: bool) -> Result<()> {
     let path = config::config_path()?;
-    println!("Config: {}", path.display());
-
     let cfg = config::load()?;
-    println!("Blueprints: {}", cfg.blueprints.len());
 
     let keys = [
         ("ANTHROPIC_API_KEY",  "Anthropic"),
@@ -373,6 +414,23 @@ fn cmd_status() -> Result<()> {
         ("MISTRAL_API_KEY",    "Mistral"),
     ];
 
+    if json {
+        print!("{{");
+        print!("\"config_path\":{},", json_str(&path.display().to_string()));
+        print!("\"blueprints\":{},", cfg.blueprints.len());
+        print!("\"api_keys\":{{");
+        for (i, (env, label)) in keys.iter().enumerate() {
+            if i > 0 { print!(","); }
+            let set = std::env::var(env).map(|v| !v.is_empty()).unwrap_or(false);
+            print!("{}:{}", json_str(label), set);
+        }
+        print!("}}");
+        println!("}}");
+        return Ok(());
+    }
+
+    println!("Config: {}", path.display());
+    println!("Blueprints: {}", cfg.blueprints.len());
     println!("\nAPI keys:");
     for (env, label) in &keys {
         let status = if std::env::var(env).map(|v| !v.is_empty()).unwrap_or(false) {

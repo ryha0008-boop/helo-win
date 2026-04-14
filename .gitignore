@@ -1,5 +1,11 @@
 /target
 
+# Electron GUI build artifacts
+gui/node_modules/
+gui/dist/
+gui/test-results/
+gui/playwright-report/
+
 # helo launcher state dirs (created by `helo run`)
 .claude-env-*/
 .pi-env-*/

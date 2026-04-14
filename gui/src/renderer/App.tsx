@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import TitleBar from './components/TitleBar';
 import BlueprintPanel, { Blueprint } from './components/BlueprintPanel';
+import ContextMenu from './components/ContextMenu';
 import Sidebar, { SidebarHandle } from './components/Sidebar';
 import TerminalView, { SessionMeta } from './components/TerminalView';
 import BrowserView from './components/BrowserView';
@@ -71,6 +72,8 @@ export default function App() {
   const activeIdRef = useRef<string | null>(null);
   const [showBlueprints, setShowBlueprints] = useState(false);
   const pendingInitCommands = useRef<Map<string, string>>(new Map());
+  const [shells, setShells] = useState<string[]>([]);
+  const [shellMenu, setShellMenu] = useState<{ x: number; y: number } | null>(null);
 
   // When a PTY becomes ready, if there's a pending init command, send it.
   useEffect(() => {
@@ -107,6 +110,10 @@ export default function App() {
 
   useEffect(() => {
     window.terminal.onForceQuit(() => { forceQuitting.current = true; });
+  }, []);
+
+  useEffect(() => {
+    window.terminal.listShells().then(setShells).catch(() => {});
   }, []);
 
   // Track unread activity on background terminals
@@ -542,7 +549,7 @@ export default function App() {
     const handler = (e: KeyboardEvent) => {
       if (e.ctrlKey && !e.shiftKey && e.key === 't') {
         e.preventDefault();
-        handleNewSession();
+        handleNewSession(settings.defaultShell || undefined);
         return;
       }
       if (e.ctrlKey && !e.shiftKey && e.key === 'w') {
@@ -737,8 +744,12 @@ export default function App() {
             <div className="titlebar-btn-group">
               <button
                 className="titlebar-action-btn"
-                onClick={() => handleNewSession()}
-                title="New terminal (Ctrl+T)"
+                onClick={() => handleNewSession(settings.defaultShell || undefined)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setShellMenu({ x: e.clientX, y: e.clientY });
+                }}
+                title="New terminal (Ctrl+T) · Right-click to choose shell"
               >+</button>
               <button
                 className="titlebar-action-btn"
@@ -803,6 +814,30 @@ export default function App() {
         onClose={() => setShowBlueprints(false)}
         onLaunch={handleLaunchBlueprint}
       />
+      {shellMenu && (
+        <ContextMenu
+          x={shellMenu.x}
+          y={shellMenu.y}
+          onClose={() => setShellMenu(null)}
+          items={[
+            ...shells.map((shell) => ({
+              label: shell === settings.defaultShell ? `✓ ${shell}` : `  ${shell}`,
+              action: () => handleNewSession(shell),
+            })),
+            { label: '', action: () => {}, separator: true },
+            ...shells
+              .filter((shell) => shell !== settings.defaultShell)
+              .map((shell) => ({
+                label: `Set default: ${shell}`,
+                action: () => {
+                  const next = { ...settings, defaultShell: shell };
+                  setSettings(next);
+                  window.terminal.saveSettings(next);
+                },
+              })),
+          ]}
+        />
+      )}
       {tabletMode && (
         <TabletToolbar
           activeType={activeSession?.type || 'terminal'}

@@ -26,7 +26,25 @@ pub fn save_instance(env_dir: &Path, inst: &Instance) -> Result<()> {
         env_dir.join(".helo.toml"),
         toml::to_string_pretty(inst)?,
     )
-    .context("could not write .helo.toml")
+    .context("could not write .helo.toml")?;
+
+    // Claude reads settings from CLAUDE_CONFIG_DIR/settings.json.
+    // Without this file the model from the blueprint is silently ignored.
+    if inst.runtime == "claude" {
+        let settings_path = env_dir.join("settings.json");
+        if !settings_path.exists() {
+            std::fs::write(
+                &settings_path,
+                format!(
+                    "{{\n  \"model\": \"{}\",\n  \"skipDangerousModePermissionPrompt\": true,\n  \"permissions\": {{\n    \"defaultMode\": \"bypassPermissions\"\n  }}\n}}\n",
+                    inst.model
+                ),
+            )
+            .context("could not write settings.json")?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Scan a project directory for all placed instances.

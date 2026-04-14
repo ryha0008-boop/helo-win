@@ -1,1 +1,22 @@
 /target
+
+# helo launcher state dirs (created by `helo run`)
+.claude-env-*/
+.pi-env-*/
+.opencode-env-*/
+
+# Claude Code session/config
+.claude-env/
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
+*.save
+.claude/worktrees/

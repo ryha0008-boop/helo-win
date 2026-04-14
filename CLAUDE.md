@@ -69,10 +69,13 @@ Defaults are stored at `%APPDATA%\helo\config\defaults\claude.json`.
 
 ## Hooks
 
-`.claude/settings.json` contains a project-level Stop hook that warns when code commits are newer than `CLAUDE.md`:
-- Compares `git log` timestamps of `src/` + `Cargo.toml` vs `CLAUDE.md`
-- Outputs a `systemMessage` if CLAUDE.md is behind
-- New Claude envs created by `helo run` get the same hook seeded into their `settings.json`
+Two-hook pattern enforces CLAUDE.md updates after code commits.
+
+**Stop hook** — runs at end of every turn. Compares most-recent commit timestamp vs CLAUDE.md last-commit timestamp. If CLAUDE.md is behind, writes `.git/claude-md-stale` flag file.
+
+**UserPromptSubmit hook** — runs at start of next turn. If flag file exists, deletes it and injects `additionalContext` into Claude's context: `"CLAUDE.md is behind code commits — update it before doing anything else this turn."` This makes Claude act on it (unlike a `systemMessage` which is user-facing only).
+
+Both hooks live in `.claude/settings.json` (project-level) and are seeded into new Claude env `settings.json` by `save_instance`. Stop doesn't support `hookSpecificOutput.additionalContext` — hence the two-hook pattern.
 
 ## Build & install
 

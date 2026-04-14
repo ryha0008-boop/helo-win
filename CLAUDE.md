@@ -103,6 +103,32 @@ helo add <name> ... --claude-md /path/to/file  # or absolute path as before
 
 Templates: `coding` (coding agent), `assistant` (general), `devops` (sysadmin).
 
+## Interactive mode
+
+`helo` with no arguments enters interactive mode — a menu-driven loop covering all functionality.
+
+```
+helo       # interactive
+helo run   # CLI as before
+```
+
+Menu shows current blueprints by number. Type number to run, letter for actions:
+
+| Key | Action |
+|-----|--------|
+| 1–N | Run blueprint N (prompts: project dir, resume?, extra args) |
+| a | Add blueprint (guided prompts for all fields) |
+| d | Delete blueprint (pick by number, confirm) |
+| s | Status (config path + API key presence) |
+| t | Templates submenu (`show <name>`, `init`) |
+| c | Clean runtime global dir |
+| x | Defaults submenu (`show <runtime>`, `set <runtime> <path>`) |
+| q | Quit |
+
+After a runtime subprocess exits, helo returns to the menu.
+
+**Extra args in interactive run:** supports double-quoted strings, e.g. `-p "my prompt"`.
+
 ## Build & install
 
 ```

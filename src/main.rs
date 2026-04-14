@@ -2,6 +2,33 @@ mod config;
 mod models;
 mod project;
 
+// ── Built-in CLAUDE.md templates ────────────────────────────────────────────
+
+const TEMPLATE_CODING: &str = include_str!("../templates/coding.md");
+const TEMPLATE_ASSISTANT: &str = include_str!("../templates/assistant.md");
+const TEMPLATE_DEVOPS: &str = include_str!("../templates/devops.md");
+
+struct Template { pub name: &'static str, pub content: &'static str }
+
+const TEMPLATES: &[Template] = &[
+    Template { name: "coding",    content: TEMPLATE_CODING    },
+    Template { name: "assistant", content: TEMPLATE_ASSISTANT },
+    Template { name: "devops",    content: TEMPLATE_DEVOPS    },
+];
+
+/// Write all built-in templates to <config_dir>/templates/ if not already present.
+fn ensure_templates() -> anyhow::Result<()> {
+    let dir = config::templates_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    for t in TEMPLATES {
+        let path = dir.join(format!("{}.md", t.name));
+        if !path.exists() {
+            std::fs::write(&path, t.content)?;
+        }
+    }
+    Ok(())
+}
+
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::Path;
@@ -76,6 +103,24 @@ enum Commands {
         #[command(subcommand)]
         sub: DefaultsCommands,
     },
+    /// List or show built-in CLAUDE.md templates
+    Templates {
+        #[command(subcommand)]
+        sub: TemplatesCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum TemplatesCommands {
+    /// List available built-in templates
+    List,
+    /// Print a template's content
+    Show {
+        /// Template name: coding, assistant, devops
+        name: String,
+    },
+    /// Write all templates to <config_dir>/templates/ (done automatically on helo add)
+    Init,
 }
 
 #[derive(Subcommand)]
@@ -114,15 +159,27 @@ fn run() -> Result<()> {
             DefaultsCommands::Set { runtime, path } => cmd_defaults_set(&runtime, &path),
             DefaultsCommands::Show { runtime } => cmd_defaults_show(&runtime),
         },
+        Commands::Templates { sub } => match sub {
+            TemplatesCommands::List => cmd_templates_list(),
+            TemplatesCommands::Show { name } => cmd_templates_show(&name),
+            TemplatesCommands::Init => { ensure_templates()?; println!("Templates written to: {}", config::templates_dir()?.display()); Ok(()) }
+        },
     }
 }
 
 fn cmd_add(name: String, runtime: String, provider: String, model: String, api_key: Option<String>, claude_md: Option<String>) -> Result<()> {
-    if let Some(ref path) = claude_md {
-        if !std::path::Path::new(path).exists() {
-            bail!("--claude-md file not found: {path}");
+    // Resolve --claude-md: template name or file path.
+    let claude_md = if let Some(ref value) = claude_md {
+        ensure_templates()?;
+        let resolved = config::resolve_claude_md(value)?;
+        if !resolved.exists() {
+            bail!("--claude-md file not found: {}", resolved.display());
         }
-    }
+        Some(resolved.to_string_lossy().into_owned())
+    } else {
+        None
+    };
+
     let mut cfg = config::load()?;
     if cfg.blueprints.iter().any(|b| b.name == name) {
         bail!("blueprint '{name}' already exists. Remove it first with: helo remove {name}");
@@ -130,6 +187,23 @@ fn cmd_add(name: String, runtime: String, provider: String, model: String, api_k
     cfg.blueprints.push(models::Blueprint { name: name.clone(), runtime, provider, model, api_key, claude_md });
     config::save(&cfg)?;
     println!("Added blueprint '{name}'.");
+    Ok(())
+}
+
+fn cmd_templates_list() -> Result<()> {
+    ensure_templates()?;
+    let dir = config::templates_dir()?;
+    println!("Built-in templates (stored in {}):\n", dir.display());
+    for t in TEMPLATES {
+        println!("  {:<12} — use with: helo add <name> ... --claude-md {}", t.name, t.name);
+    }
+    Ok(())
+}
+
+fn cmd_templates_show(name: &str) -> Result<()> {
+    let t = TEMPLATES.iter().find(|t| t.name == name)
+        .with_context(|| format!("unknown template '{name}'. Run: helo templates list"))?;
+    print!("{}", t.content);
     Ok(())
 }
 

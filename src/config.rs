@@ -18,6 +18,27 @@ pub fn defaults_path(runtime: &str) -> Result<PathBuf> {
     Ok(project_dirs()?.config_dir().join("defaults").join(format!("{runtime}.json")))
 }
 
+/// Directory where built-in CLAUDE.md templates are stored.
+pub fn templates_dir() -> Result<PathBuf> {
+    Ok(project_dirs()?.config_dir().join("templates"))
+}
+
+/// Resolve a --claude-md value: if it's a known template name (no path separators,
+/// no extension), look up <templates_dir>/<name>.md; otherwise treat as a file path.
+pub fn resolve_claude_md(value: &str) -> Result<PathBuf> {
+    let is_name = !value.contains('/') && !value.contains('\\') && !value.contains('.');
+    if is_name {
+        let path = templates_dir()?.join(format!("{value}.md"));
+        if path.exists() {
+            return Ok(path);
+        }
+        anyhow::bail!(
+            "unknown template '{value}'. Run: helo templates list"
+        );
+    }
+    Ok(PathBuf::from(value))
+}
+
 pub fn load() -> Result<Config> {
     let path = config_path()?;
     if !path.exists() {

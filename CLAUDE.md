@@ -105,6 +105,8 @@ helo key <name> <key>   # store or replace the api_key in an existing blueprint
 
 Interactive mode: press `k`, pick blueprint by number, enter new key.
 
+**Priority:** stored blueprint key takes precedence over the corresponding env var (`ZAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.) for all runtimes.
+
 ## Built-in CLAUDE.md templates
 
 Shipped with the binary, written to `<config_dir>/templates/` on first use.

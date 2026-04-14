@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsc -p tsconfig.main.json && concurrently \"npm run dev:renderer\" \"wait-on http://localhost:5173 && electron dist/main/main/index.js\"",
     "daemon": "tsc -p tsconfig.main.json && cross-env ELECTRON_RUN_AS_NODE=1 electron dist/main/main/pty-daemon.js",
-    "app": "tsc -p tsconfig.main.json && electron dist/main/main/index.js",
+    "app": "tsc -p tsconfig.main.json && cross-env NODE_ENV=production electron dist/main/main/index.js",
     "dev:renderer": "vite",
     "build": "tsc -p tsconfig.main.json && vite build",
     "package": "npm run build && electron-builder",

@@ -66,6 +66,10 @@ export default function App() {
   const [shellMenu, setShellMenu] = useState<{ x: number; y: number } | null>(null);
   // Pane layout — up to 4 session IDs shown simultaneously in the grid.
   const [paneIds, setPaneIds] = useState<string[]>([]);
+  // Pane resize splits (percentage 20-80)
+  const [splitV, setSplitV] = useState(50); // vertical (column) divider
+  const [splitH, setSplitH] = useState(50); // horizontal (row) divider
+  const paneGridRef = useRef<HTMLDivElement>(null);
 
   // When a PTY becomes ready, if there's a pending init command, send it.
   useEffect(() => {
@@ -80,6 +84,47 @@ export default function App() {
     window.terminal.addReadyListener(readyListener);
     return () => window.terminal.removeReadyListener(readyListener);
   }, []);
+
+  const addToPane = useCallback((id: string) => {
+    setPaneIds((prev) => {
+      if (prev.includes(id)) return prev;
+      if (prev.length < 4) return [...prev, id];
+      // At capacity — replace the currently active session's pane slot.
+      const activeIdx = prev.indexOf(activeIdRef.current ?? '');
+      const replaceIdx = activeIdx >= 0 ? activeIdx : prev.length - 1;
+      return prev.map((pId, i) => (i === replaceIdx ? id : pId));
+    });
+  }, []);
+
+  const startPaneDrag = useCallback((e: React.MouseEvent, dir: 'v' | 'h') => {
+    e.preventDefault();
+    const rect = paneGridRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const ids = paneIds;
+    const onMove = (ev: MouseEvent) => {
+      if (dir === 'v') {
+        setSplitV(Math.min(80, Math.max(20, ((ev.clientX - rect.left) / rect.width) * 100)));
+      } else {
+        setSplitH(Math.min(80, Math.max(20, ((ev.clientY - rect.top) / rect.height) * 100)));
+      }
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setTimeout(() => {
+        for (const id of ids) {
+          const entry = TerminalView.getTerminal(id);
+          if (entry) entry.fitAddon.fit();
+        }
+      }, 50);
+    };
+    document.body.style.cursor = dir === 'v' ? 'col-resize' : 'row-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [paneIds]);
 
   const handleLaunchBlueprint = useCallback((bp: Blueprint, cwd: string) => {
     const session = createSession();
@@ -283,15 +328,6 @@ export default function App() {
       });
     }
   }, [activeId]);
-
-  const addToPane = useCallback((id: string) => {
-    setPaneIds((prev) => {
-      if (prev.includes(id)) return prev;
-      if (prev.length < 4) return [...prev, id];
-      // At capacity — replace the currently active pane (last one as fallback).
-      return prev.map((pId, i) => (i === prev.length - 1 ? id : pId));
-    });
-  }, []);
 
   const handleNewSession = useCallback((shell?: string) => {
     const session = createSession(shell);
@@ -720,7 +756,30 @@ export default function App() {
           sessionMeta={sessionMeta}
           paneIds={paneIds}
         />
-        <div className={`terminal-container pane-grid pane-count-${paneIds.length}`}>
+        <div
+          ref={paneGridRef}
+          className={`terminal-container pane-grid pane-count-${paneIds.length}`}
+          style={(() => {
+            const n = paneIds.length;
+            if (n <= 1) return {};
+            if (n === 2) return { gridTemplateColumns: `${splitV}fr ${100 - splitV}fr` };
+            return { gridTemplateColumns: `${splitV}fr ${100 - splitV}fr`, gridTemplateRows: `${splitH}fr ${100 - splitH}fr` };
+          })()}
+        >
+          {paneIds.length >= 2 && (
+            <div
+              className="pane-resize-handle pane-resize-v"
+              style={{ left: `${splitV}%` }}
+              onMouseDown={(e) => startPaneDrag(e, 'v')}
+            />
+          )}
+          {paneIds.length >= 3 && (
+            <div
+              className="pane-resize-handle pane-resize-h"
+              style={{ top: `${splitH}%` }}
+              onMouseDown={(e) => startPaneDrag(e, 'h')}
+            />
+          )}
           {sessions.map((session) => {
             const paneIndex = paneIds.indexOf(session.id);
             const inPane = paneIndex >= 0;

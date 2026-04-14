@@ -422,11 +422,13 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
     };
     window.terminal.addReadyListener(readyListener);
 
-    // Handle resize
+    // Handle resize — use clientWidth/Height; offsetParent is unreliable mid-transition.
     const resizeObserver = new ResizeObserver(() => {
-      if (containerRef.current?.offsetParent !== null) {
+      const el = containerRef.current;
+      if (el && el.clientWidth > 0 && el.clientHeight > 0) {
         fitAddon.fit();
         window.terminal.resizePty(sessionId, term.cols, term.rows);
+        term.refresh(0, term.rows - 1);
       }
     });
     resizeObserver.observe(containerRef.current);
@@ -453,15 +455,24 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
     };
   }, [sessionId]);
 
-  // Re-fit and focus when becoming active
+  // Re-fit, refresh, and focus when becoming active.
+  // Two-stage: immediate RAF (CSS already committed) + 150ms fallback (WebGL catch-up).
   useEffect(() => {
     if (isActive) {
       const entry = terminals.get(sessionId);
       if (entry) {
         requestAnimationFrame(() => {
           entry.fitAddon.fit();
+          entry.term.refresh(0, entry.term.rows - 1);
           entry.term.focus();
         });
+        setTimeout(() => {
+          const e = terminals.get(sessionId);
+          if (e) {
+            e.fitAddon.fit();
+            e.term.refresh(0, e.term.rows - 1);
+          }
+        }, 150);
       }
     }
   }, [isActive, sessionId]);

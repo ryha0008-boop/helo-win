@@ -138,6 +138,22 @@ function SidebarInner({ sessions, canClose, onNew, onNewBrowser, onSelect, onClo
     });
   }, [sessions]);
 
+  // Auto-group: when ungrouped terminal count hits 5, group the first 4.
+  // Fires on every session change; setGroups functional updater reads current groups.
+  useEffect(() => {
+    const terminals = sessions.filter((s) => s.type === 'terminal');
+    setGroups((prev) => {
+      const groupedIds = new Set(Object.values(prev).flat());
+      const ungrouped = terminals.filter((s) => !groupedIds.has(s.id));
+      if (ungrouped.length !== 5) return prev;
+      const toGroup = ungrouped.slice(0, 4);
+      const groupNum = Object.keys(prev).length + 1;
+      const name = `Group ${groupNum}`;
+      setCollapsedGroups((c) => new Set([...c, name]));
+      return { ...prev, [name]: toGroup.map((s) => s.id) };
+    });
+  }, [sessions]);
+
   const togglePin = (id: string) => {
     setPinnedIds((prev) => {
       const next = new Set(prev);
@@ -580,12 +596,6 @@ function SidebarInner({ sessions, canClose, onNew, onNewBrowser, onSelect, onClo
                     </button>
                   )}
                 </div>
-                {/* Pane indicator badge */}
-                {paneIds && paneIds.includes(session.id) && (
-                  <span className="session-pane-badge" title="Visible in pane">
-                    {paneIds.indexOf(session.id) + 1}
-                  </span>
-                )}
               </React.Fragment>
               );
             })}

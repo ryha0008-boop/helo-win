@@ -23,8 +23,7 @@ interface SidebarProps {
   onReorder?: (fromIndex: number, toIndex: number) => void;
   unreadSessions?: Set<string>;
   sessionMeta?: Map<string, SessionMeta>;
-  splits?: Map<string, { id: string; type: 'terminal' | 'browser'; direction: string; shell?: string }>;
-  onCloseSplit?: (parentId: string) => void;
+  paneIds?: string[];
 }
 
 const MIN_WIDTH = 180;
@@ -66,7 +65,7 @@ export interface SidebarHandle {
   side: 'left' | 'right';
 }
 
-function SidebarInner({ sessions, canClose, onNew, onNewBrowser, onSelect, onClose, onRename, onDuplicate, onReorder, unreadSessions, sessionMeta, splits, onCloseSplit }: SidebarProps, ref: React.Ref<SidebarHandle>) {
+function SidebarInner({ sessions, canClose, onNew, onNewBrowser, onSelect, onClose, onRename, onDuplicate, onReorder, unreadSessions, sessionMeta, paneIds }: SidebarProps, ref: React.Ref<SidebarHandle>) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const editCancelled = useRef(false);
@@ -581,67 +580,12 @@ function SidebarInner({ sessions, canClose, onNew, onNewBrowser, onSelect, onClo
                     </button>
                   )}
                 </div>
-                {/* Split pane child */}
-                {(() => {
-                  const split = splits?.get(session.id);
-                  if (!split) return null;
-                  const splitMeta = sessionMeta?.get(split.id);
-                  const splitUnread = unreadSessions?.has(split.id) ?? false;
-                  return (
-                    <div className="session-item session-child" onClick={() => onSelect(session.id)}>
-                      <span className="session-child-line" />
-                      <span className={`session-icon ${split.type === 'browser' ? 'browser' : 'terminal'}`}>
-                        {split.type === 'browser' ? '\u{1F310}' : '>_'}
-                      </span>
-                      <div className="session-info">
-                        <div className="session-name-row">
-                          <span className="session-name">
-                            {split.direction === 'vertical' ? '\u2502 ' : '\u2500 '}
-                            {split.type === 'browser' ? 'Browser' : (split.shell || 'Terminal')}
-                          </span>
-                        </div>
-                        {splitMeta && (
-                          <div className="session-subtitle">
-                            {splitMeta.isRunning && <span className="session-running-dot" />}
-                            <span className="session-subtitle-text" title={splitMeta.cwd || splitMeta.lastCommand || ''}>
-                              {splitMeta.lastCommand
-                                ? (splitMeta.isRunning ? '\u25B6 ' : '$ ') + splitMeta.lastCommand
-                                : splitMeta.cwd || ''}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Exit code / unread */}
-                      {(() => {
-                        if (splitMeta?.exitCode !== undefined && splitMeta.exitCode !== null) {
-                          return (
-                            <span className={`session-exit-badge ${splitMeta.exitCode === 0 ? 'success' : 'error'}`}>
-                              {splitMeta.exitCode === 0 ? '\u2713' : splitMeta.exitCode}
-                            </span>
-                          );
-                        }
-                        if (splitUnread && !session.isActive) {
-                          return <span className="session-unread" />;
-                        }
-                        return null;
-                      })()}
-
-                      {/* Close split button */}
-                      <button
-                        className="session-close"
-                        style={{ opacity: 1 }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onCloseSplit?.(session.id);
-                        }}
-                        title="Close split"
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  );
-                })()}
+                {/* Pane indicator badge */}
+                {paneIds && paneIds.includes(session.id) && (
+                  <span className="session-pane-badge" title="Visible in pane">
+                    {paneIds.indexOf(session.id) + 1}
+                  </span>
+                )}
               </React.Fragment>
               );
             })}

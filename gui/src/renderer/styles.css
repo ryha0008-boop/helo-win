@@ -1815,6 +1815,113 @@ html, body, #root {
   opacity: 1;
 }
 
+/* Pane grid — up to 4 sessions visible simultaneously */
+.pane-grid {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  gap: 2px;
+  background: var(--ui-border);
+}
+.pane-count-0, .pane-count-1 {
+  grid-template-areas: "p1";
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+.pane-count-2 {
+  grid-template-areas: "p1 p2";
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr;
+}
+.pane-count-3 {
+  grid-template-areas: "p1 p2" "p1 p3";
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+.pane-count-4 {
+  grid-template-areas: "p1 p2" "p3 p4";
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.pane-slot {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ui-bg);
+}
+.pane-slot-active .pane-bar {
+  border-bottom-color: var(--ui-accent);
+}
+.pane-slot-active {
+  box-shadow: inset 0 0 0 1px var(--ui-accent);
+}
+
+.pane-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 8px;
+  background: var(--ui-sidebar);
+  border-bottom: 1px solid var(--ui-border);
+  flex-shrink: 0;
+  min-height: 22px;
+  font-size: 11px;
+  color: var(--ui-text-muted);
+  user-select: none;
+}
+.pane-bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  margin-right: 4px;
+}
+.pane-bar-close {
+  background: none;
+  border: none;
+  color: var(--ui-text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  flex-shrink: 0;
+}
+.pane-bar-close:hover { color: var(--ui-danger); }
+
+.pane-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.pane-empty-state {
+  grid-area: p1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ui-text-dim);
+  font-size: 13px;
+}
+
+/* Pane badge in sidebar */
+.session-pane-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  background: var(--ui-accent);
+  color: #000;
+  font-size: 9px;
+  font-weight: 700;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
 /* Blueprint Panel */
 .bp-overlay {
   position: fixed;

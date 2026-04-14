@@ -22,16 +22,6 @@ interface Session {
   createdAt: number;
 }
 
-interface SplitPane {
-  id: string;
-  type: 'terminal' | 'browser';
-  direction: 'horizontal' | 'vertical';
-  shell?: string;
-  url?: string;
-  browserTabs?: { url: string; title: string }[];
-  fromDaemon?: boolean;
-}
-
 let sessionCounter = 0;
 
 function createSession(shell?: string): Session {
@@ -74,6 +64,8 @@ export default function App() {
   const pendingInitCommands = useRef<Map<string, string>>(new Map());
   const [shells, setShells] = useState<string[]>([]);
   const [shellMenu, setShellMenu] = useState<{ x: number; y: number } | null>(null);
+  // Pane layout — up to 4 session IDs shown simultaneously in the grid.
+  const [paneIds, setPaneIds] = useState<string[]>([]);
 
   // When a PTY becomes ready, if there's a pending init command, send it.
   useEffect(() => {
@@ -91,12 +83,12 @@ export default function App() {
 
   const handleLaunchBlueprint = useCallback((bp: Blueprint, cwd: string) => {
     const session = createSession();
-    session.name = `${bp.name}`;
-    // Quote the path to handle spaces. POSIX-shell syntax works in Git Bash and pwsh.
+    session.name = bp.name;
     const initCmd = `cd "${cwd.replace(/"/g, '\\"')}" && helo run ${bp.name}`;
     pendingInitCommands.current.set(session.id, initCmd);
     setSessions((prev) => [...prev.map((s) => ({ ...s, isActive: false })), session]);
-  }, []);
+    addToPane(session.id);
+  }, [addToPane]);
 
   const handleSessionMeta = useCallback((id: string, meta: SessionMeta) => {
     setSessionMeta((prev) => {
@@ -220,19 +212,11 @@ export default function App() {
 
       // Restore terminal sessions from daemon
       const names: Record<string, string> = savedNames || {};
-      // Restore split pane info
-      let savedSplits: Record<string, { id: string; direction: string }> = {};
-      try {
-        if (names['__splits']) {
-          savedSplits = JSON.parse(names['__splits']);
-          delete names['__splits'];
-        }
-      } catch {}
-      // Also clean up legacy __splitIds key
-      delete names['__splitIds'];
+      // Clean up any legacy split keys
+      delete (names as any)['__splits'];
+      delete (names as any)['__splitIds'];
 
-      const splitChildIds = new Set(Object.values(savedSplits).map((s) => s.id));
-      const alive = daemonSessions.filter((s: any) => s.alive && !splitChildIds.has(s.id));
+      const alive = daemonSessions.filter((s: any) => s.alive);
       for (let i = 0; i < alive.length; i++) {
         sessionCounter++;
         const defaultName = alive[i].shell ? `${alive[i].shell} ${sessionCounter}` : `Terminal ${sessionCounter}`;
@@ -268,38 +252,10 @@ export default function App() {
       if (!allSessions.some((s) => s.type === 'terminal')) {
         allSessions.unshift(createSession());
       }
-      const firstTerminal = allSessions.findIndex((s) => s.type === 'terminal');
-      allSessions[firstTerminal].isActive = true;
+      const firstTerminalIdx = allSessions.findIndex((s) => s.type === 'terminal');
+      allSessions[firstTerminalIdx].isActive = true;
       setSessions(allSessions);
-
-      // Restore split panes
-      const aliveIds = new Set(daemonSessions.filter((s: any) => s.alive).map((s: any) => s.id));
-      const restoredSplits = new Map<string, SplitPane>();
-      for (const [parentId, info] of Object.entries(savedSplits)) {
-        const parentExists = allSessions.some((s) => s.id === parentId);
-        const splitType = (info as any).type || 'terminal';
-        const isTerminalAlive = splitType === 'terminal' && aliveIds.has(info.id);
-        const isBrowser = splitType === 'browser';
-
-        if (parentExists && (isTerminalAlive || isBrowser)) {
-          const parentSession = allSessions.find((s) => s.id === parentId);
-          restoredSplits.set(parentId, {
-            id: isBrowser ? crypto.randomUUID() : info.id,
-            type: splitType,
-            direction: info.direction as 'horizontal' | 'vertical',
-            shell: parentSession?.shell,
-            url: isBrowser ? ((info as any).url || 'https://www.google.com') : undefined,
-            browserTabs: isBrowser ? (info as any).browserTabs : undefined,
-            fromDaemon: isTerminalAlive,
-          });
-        } else if (aliveIds.has(info.id)) {
-          // Split PTY alive but parent gone — destroy it
-          window.terminal.destroyPty(info.id);
-        }
-      }
-      if (restoredSplits.size > 0) {
-        setSplits(restoredSplits);
-      }
+      setPaneIds([allSessions[firstTerminalIdx].id]);
     });
 
     // Fallback: if nothing responds in 2 seconds, create fresh
@@ -328,40 +284,39 @@ export default function App() {
     }
   }, [activeId]);
 
+  const addToPane = useCallback((id: string) => {
+    setPaneIds((prev) => {
+      if (prev.includes(id)) return prev;
+      if (prev.length < 4) return [...prev, id];
+      // At capacity — replace the currently active pane (last one as fallback).
+      return prev.map((pId, i) => (i === prev.length - 1 ? id : pId));
+    });
+  }, []);
+
   const handleNewSession = useCallback((shell?: string) => {
     const session = createSession(shell);
-    setSessions((prev) =>
-      [...prev.map((s) => ({ ...s, isActive: false })), session]
-    );
-  }, []);
+    setSessions((prev) => [...prev.map((s) => ({ ...s, isActive: false })), session]);
+    addToPane(session.id);
+  }, [addToPane]);
 
   const handleNewBrowser = useCallback((url?: string) => {
     const session = createBrowserSession(url);
-    setSessions((prev) =>
-      [...prev.map((s) => ({ ...s, isActive: false })), session]
-    );
-  }, []);
+    setSessions((prev) => [...prev.map((s) => ({ ...s, isActive: false })), session]);
+    addToPane(session.id);
+  }, [addToPane]);
 
   const handleSelectSession = useCallback((id: string) => {
-    setSessions((prev) =>
-      prev.map((s) => ({ ...s, isActive: s.id === id }))
-    );
-  }, []);
+    setSessions((prev) => prev.map((s) => ({ ...s, isActive: s.id === id })));
+    addToPane(id);
+    // Refit the terminal after it becomes visible (may have been hidden).
+    setTimeout(() => {
+      const entry = TerminalView.getTerminal(id);
+      if (entry) entry.fitAddon.fit();
+    }, 50);
+  }, [addToPane]);
 
-  // Split panes — keyed by parent session ID (must be before handleCloseSession)
-  const [splits, setSplits] = useState<Map<string, SplitPane>>(new Map());
-
-  const handleCloseSplit = useCallback((parentId: string) => {
-    setSplits((prev) => {
-      const split = prev.get(parentId);
-      if (!split) return prev;
-      if (split.type === 'terminal') {
-        window.terminal.destroyPty(split.id);
-      }
-      const next = new Map(prev);
-      next.delete(parentId);
-      return next;
-    });
+  const handleRemoveFromPane = useCallback((id: string) => {
+    setPaneIds((prev) => prev.filter((pId) => pId !== id));
   }, []);
 
   // Save sessions on window unload
@@ -376,23 +331,13 @@ export default function App() {
       }
       const nameMap: Record<string, string> = {};
       for (const s of sessions) {
-        if (s.type === 'terminal') {
-          nameMap[s.id] = s.name;
-        }
-      }
-      // Save split pane info for restore
-      if (splits.size > 0) {
-        const splitInfo: Record<string, { id: string; type: string; direction: string; url?: string }> = {};
-        for (const [parentId, split] of splits) {
-          splitInfo[parentId] = { id: split.id, type: split.type, direction: split.direction, url: split.url, browserTabs: split.browserTabs };
-        }
-        nameMap['__splits'] = JSON.stringify(splitInfo);
+        if (s.type === 'terminal') nameMap[s.id] = s.name;
       }
       window.terminal.saveSessionNames(nameMap);
     };
     window.addEventListener('beforeunload', save);
     return () => window.removeEventListener('beforeunload', save);
-  }, [sessions, splits]);
+  }, [sessions]);
 
   const handleCloseSession = useCallback((id: string) => {
     setSessions((prev) => {
@@ -407,12 +352,12 @@ export default function App() {
       }
       return remaining;
     });
+    setPaneIds((prev) => prev.filter((pId) => pId !== id));
     const session = sessions.find((s) => s.id === id);
     if (session?.type === 'terminal') {
       window.terminal.destroyPty(id);
-      handleCloseSplit(id);
     }
-  }, [sessions, handleCloseSplit]);
+  }, [sessions]);
 
   const handleRenameSession = useCallback((id: string, name: string) => {
     setSessions((prev) =>
@@ -451,69 +396,6 @@ export default function App() {
     }
   }, [sessions, handleNewSession, handleNewBrowser]);
 
-  // Split pane ratios (0-1, left/top pane fraction)
-  const [splitRatios, setSplitRatios] = useState<Map<string, number>>(new Map());
-
-  const handleSplitDragStart = useCallback((parentId: string, direction: 'horizontal' | 'vertical', e: React.MouseEvent) => {
-    e.preventDefault();
-    const wrapper = (e.target as HTMLElement).closest('.terminal-wrapper') as HTMLElement;
-    if (!wrapper) return;
-    const startPos = direction === 'vertical' ? e.clientX : e.clientY;
-    const totalSize = direction === 'vertical' ? wrapper.offsetWidth : wrapper.offsetHeight;
-    const startRatio = splitRatios.get(parentId) ?? 0.5;
-
-    const onMove = (ev: MouseEvent) => {
-      const wrapperRect = wrapper.getBoundingClientRect();
-      const offset = direction === 'vertical' ? ev.clientX - wrapperRect.left : ev.clientY - wrapperRect.top;
-      const size = direction === 'vertical' ? wrapperRect.width : wrapperRect.height;
-      const ratio = Math.max(0.15, Math.min(0.85, offset / size));
-      setSplitRatios((prev) => {
-        const next = new Map(prev);
-        next.set(parentId, ratio);
-        return next;
-      });
-    };
-
-    const onUp = () => {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      // Refit any terminals after resize (browsers don't need refit)
-      const entry1 = TerminalView.getTerminal(parentId);
-      const split = splits.get(parentId);
-      const entry2 = split ? TerminalView.getTerminal(split.id) : null;
-      setTimeout(() => {
-        if (entry1) entry1.fitAddon.fit();
-        if (entry2) entry2.fitAddon.fit();
-      }, 0);
-    };
-
-    document.body.style.cursor = direction === 'vertical' ? 'col-resize' : 'row-resize';
-    document.body.style.userSelect = 'none';
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-  }, [splitRatios, splits]);
-
-  const handleSplitPane = useCallback((direction: 'horizontal' | 'vertical', splitType?: 'terminal' | 'browser') => {
-    if (!activeId) return;
-    if (splits.has(activeId)) return; // already split
-    const active = sessions.find((s) => s.id === activeId);
-    if (!active) return;
-    const type = splitType || 'terminal';
-    const splitId = crypto.randomUUID();
-    setSplits((prev) => {
-      const next = new Map(prev);
-      next.set(activeId, {
-        id: splitId,
-        type,
-        direction,
-        shell: type === 'terminal' ? (active.shell || undefined) : undefined,
-        url: type === 'browser' ? 'https://www.google.com' : undefined,
-      });
-      return next;
-    });
-  }, [activeId, sessions, splits]);
 
   // Font size zoom
   const [fontSize, setFontSize] = useState(() => {
@@ -601,22 +483,10 @@ export default function App() {
         if (entry) entry.term.clear();
         return;
       }
-      // Ctrl+Shift+D — split vertical
-      if (e.ctrlKey && e.shiftKey && e.key === 'D') {
-        e.preventDefault();
-        handleSplitPane('vertical');
-        return;
-      }
-      // Ctrl+Shift+E — split horizontal
-      if (e.ctrlKey && e.shiftKey && e.key === 'E') {
-        e.preventDefault();
-        handleSplitPane('horizontal');
-        return;
-      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [activeId, sessions, handleNewSession, handleCloseSession, handleSelectSession, updateFontSize, terminals, handleSplitPane]);
+  }, [activeId, sessions, handleNewSession, handleCloseSession, handleSelectSession, updateFontSize, terminals]);
 
   const scrollTimer = useRef<number | null>(null);
   const scrollSpeed = useRef(3);
@@ -758,34 +628,6 @@ export default function App() {
               >&#9741;</button>
             </div>
 
-            {/* Split pane */}
-            {!splits.has(activeId!) ? (
-              <div className="titlebar-btn-group">
-                <button
-                  className="titlebar-action-btn"
-                  onClick={() => handleSplitPane('vertical', 'terminal')}
-                  title="Split terminal vertical (Ctrl+Shift+D)"
-                >&#9553;</button>
-                <button
-                  className="titlebar-action-btn"
-                  onClick={() => handleSplitPane('horizontal', 'terminal')}
-                  title="Split terminal horizontal (Ctrl+Shift+E)"
-                >&#9552;</button>
-                <button
-                  className="titlebar-action-btn"
-                  onClick={() => handleSplitPane('vertical', 'browser')}
-                  title="Split browser vertical"
-                >&#9741;&#9553;</button>
-              </div>
-            ) : (
-              <div className="titlebar-btn-group">
-                <button
-                  className="titlebar-action-btn"
-                  onClick={() => handleCloseSplit(activeId!)}
-                  title="Close split pane"
-                >&times;</button>
-              </div>
-            )}
 
             {/* Tools */}
             <div className="titlebar-btn-group">
@@ -851,11 +693,11 @@ export default function App() {
           onArrow={handleTabletArrow}
           onScrollUp={handleTabletScrollUp}
           onScrollDown={handleTabletScrollDown}
-          onSplitVertical={() => handleSplitPane('vertical')}
-          onSplitHorizontal={() => handleSplitPane('horizontal')}
-          onCloseSplit={() => { if (activeId) handleCloseSplit(activeId); }}
+          onSplitVertical={() => {}}
+          onSplitHorizontal={() => {}}
+          onCloseSplit={() => {}}
           canClose={sessions.length > 1}
-          hasSplit={!!(activeId && splits.has(activeId))}
+          hasSplit={false}
           onToggleSidebar={() => { sidebarRef.current?.toggleCollapse(); forceRender((n) => n + 1); }}
           sidebarCollapsed={sidebarRef.current?.collapsed ?? false}
           onSettings={() => setShowSettings(true)}
@@ -876,28 +718,35 @@ export default function App() {
           onReorder={handleReorderSessions}
           unreadSessions={unreadSessions}
           sessionMeta={sessionMeta}
-          splits={splits}
-          onCloseSplit={handleCloseSplit}
+          paneIds={paneIds}
         />
-        <div className="terminal-container">
+        <div className={`terminal-container pane-grid pane-count-${paneIds.length}`}>
           {sessions.map((session) => {
-            const split = splits.get(session.id);
-
-            const ratio = split ? (splitRatios.get(session.id) ?? 0.5) : 1;
-            const pane1Style = split ? { flex: `0 0 calc(${ratio * 100}% - 2px)` } : {};
-            const pane2Style = split ? { flex: `0 0 calc(${(1 - ratio) * 100}% - 2px)` } : {};
-
+            const paneIndex = paneIds.indexOf(session.id);
+            const inPane = paneIndex >= 0;
+            const isActive = session.isActive;
             return (
               <div
                 key={session.id}
-                className={`terminal-wrapper ${split ? `split-${split.direction}` : ''}`}
-                style={{ display: session.isActive ? 'flex' : 'none' }}
+                className={`pane-slot ${inPane ? 'pane-slot-visible' : ''} ${isActive ? 'pane-slot-active' : ''}`}
+                style={inPane ? { gridArea: `p${paneIndex + 1}` } : { display: 'none' }}
+                onClick={inPane && !isActive ? () => handleSelectSession(session.id) : undefined}
               >
-                <div className="split-pane" style={pane1Style}>
+                {inPane && (
+                  <div className="pane-bar">
+                    <span className="pane-bar-name">{session.name}</span>
+                    <button
+                      className="pane-bar-close"
+                      onClick={(e) => { e.stopPropagation(); handleRemoveFromPane(session.id); }}
+                      title="Remove from pane"
+                    >×</button>
+                  </div>
+                )}
+                <div className="pane-content">
                   {session.type === 'terminal' ? (
                     <TerminalView
                       sessionId={session.id}
-                      isActive={session.isActive}
+                      isActive={isActive}
                       shell={session.shell}
                       fontSize={fontSize}
                       fromDaemon={session.fromDaemon}
@@ -908,7 +757,7 @@ export default function App() {
                   ) : (
                     <BrowserView
                       sessionId={session.id}
-                      isActive={session.isActive}
+                      isActive={isActive}
                       initialUrl={session.url}
                       initialTabs={session.browserTabs}
                       onTitleChange={handleBrowserTitleChange}
@@ -916,66 +765,11 @@ export default function App() {
                     />
                   )}
                 </div>
-                {split && (
-                  <>
-                    <div
-                      className="split-divider"
-                      onMouseDown={(e) => handleSplitDragStart(session.id, split.direction, e)}
-                    />
-                    <div className="split-pane" style={pane2Style}>
-                      {split.type === 'terminal' ? (
-                        <TerminalView
-                          sessionId={split.id}
-                          isActive={session.isActive}
-                          shell={split.shell}
-                          fontSize={fontSize}
-                          fromDaemon={split.fromDaemon}
-                          tabletMode={tabletMode}
-                          settings={settings}
-                          onSessionMeta={handleSessionMeta}
-                        />
-                      ) : (
-                        <BrowserView
-                          sessionId={split.id}
-                          isActive={session.isActive}
-                          initialUrl={split.url}
-                          initialTabs={split.browserTabs}
-                          onTitleChange={() => {}}
-                          onTabsChange={(_id, tabs) => {
-                            if (tabs.length > 0) {
-                              const newUrl = tabs[0].url;
-                              setSplits((prev) => {
-                                const s = prev.get(session.id);
-                                if (!s || s.type !== 'browser' || s.url === newUrl) return prev;
-                                const next = new Map(prev);
-                                next.set(session.id, { ...s, url: newUrl, browserTabs: tabs });
-                                return next;
-                              });
-                            }
-                          }}
-                        />
-                      )}
-                    </div>
-                  </>
-                )}
               </div>
             );
           })}
-          {activeSession?.type === 'terminal' && (
-            <>
-              <button
-                className="scroll-btn scroll-btn-up"
-                onMouseDown={(e) => { e.preventDefault(); startScrolling(-1); }}
-                onMouseUp={stopScrolling}
-                onMouseLeave={stopScrolling}
-              >&#9650;</button>
-              <button
-                className="scroll-btn scroll-btn-down"
-                onMouseDown={(e) => { e.preventDefault(); startScrolling(1); }}
-                onMouseUp={stopScrolling}
-                onMouseLeave={stopScrolling}
-              >&#9660;</button>
-            </>
+          {paneIds.length === 0 && (
+            <div className="pane-empty-state">Select a session from the sidebar</div>
           )}
         </div>
       </div>

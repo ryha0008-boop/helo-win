@@ -79,6 +79,30 @@ Two-hook pattern enforces CLAUDE.md updates after code commits.
 
 Both hooks live in `.claude/settings.json` (project-level) and are seeded into new Claude env `settings.json` by `save_instance`. Stop doesn't support `hookSpecificOutput.additionalContext` — hence the two-hook pattern.
 
+## z.ai provider
+
+`helo add <name> --runtime claude --provider zai --model glm-5.1 --api-key <key>`
+
+On `helo run`, injects:
+- `ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic`
+- `ANTHROPIC_AUTH_TOKEN=<key>`
+- `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL=<model>` (routes all tiers to blueprint model)
+
+Blueprint `zai-agent` exists with model `glm-5.1`.
+
+## Built-in CLAUDE.md templates
+
+Shipped with the binary, written to `<config_dir>/templates/` on first use.
+
+```
+helo templates list                 # show available templates
+helo templates show <name>          # print template content
+helo add <name> ... --claude-md coding     # use built-in template by name
+helo add <name> ... --claude-md /path/to/file  # or absolute path as before
+```
+
+Templates: `coding` (coding agent), `assistant` (general), `devops` (sysadmin).
+
 ## Build & install
 
 ```

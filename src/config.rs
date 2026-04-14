@@ -4,10 +4,18 @@ use std::path::PathBuf;
 
 use crate::models::Config;
 
+fn project_dirs() -> Result<directories::ProjectDirs> {
+    ProjectDirs::from("", "", "helo").context("could not determine config directory")
+}
+
 pub fn config_path() -> Result<PathBuf> {
-    let dirs = ProjectDirs::from("", "", "helo")
-        .context("could not determine config directory")?;
-    Ok(dirs.config_dir().join("config.toml"))
+    Ok(project_dirs()?.config_dir().join("config.toml"))
+}
+
+/// Path to the user-defined settings defaults for a given runtime.
+/// e.g. <config_dir>/defaults/claude.json
+pub fn defaults_path(runtime: &str) -> Result<PathBuf> {
+    Ok(project_dirs()?.config_dir().join("defaults").join(format!("{runtime}.json")))
 }
 
 pub fn load() -> Result<Config> {

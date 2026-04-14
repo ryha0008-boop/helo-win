@@ -57,6 +57,27 @@ enum Commands {
         #[arg(short, long)]
         yes: bool,
     },
+    /// Manage default settings seeded into new environments
+    Defaults {
+        #[command(subcommand)]
+        sub: DefaultsCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum DefaultsCommands {
+    /// Copy a settings file as the default for a runtime
+    Set {
+        /// Runtime: pi, claude, or opencode
+        runtime: String,
+        /// Path to the settings file to use as default
+        path: String,
+    },
+    /// Show the current default settings for a runtime
+    Show {
+        /// Runtime: pi, claude, or opencode
+        runtime: String,
+    },
 }
 
 fn main() {
@@ -75,6 +96,10 @@ fn run() -> Result<()> {
         Commands::Run { name, resume, extra } => cmd_run(name, resume, extra),
         Commands::Status => cmd_status(),
         Commands::Clean { runtime, yes } => cmd_clean(&runtime, yes),
+        Commands::Defaults { sub } => match sub {
+            DefaultsCommands::Set { runtime, path } => cmd_defaults_set(&runtime, &path),
+            DefaultsCommands::Show { runtime } => cmd_defaults_show(&runtime),
+        },
     }
 }
 
@@ -282,6 +307,31 @@ fn cmd_clean(runtime: &str, yes: bool) -> Result<()> {
     std::fs::remove_dir_all(&global_dir)
         .with_context(|| format!("could not remove {}", global_dir.display()))?;
     println!("Removed {}.", global_dir.display());
+    Ok(())
+}
+
+fn cmd_defaults_set(runtime: &str, path: &str) -> Result<()> {
+    let src = std::path::Path::new(path);
+    let content = std::fs::read_to_string(src)
+        .with_context(|| format!("could not read {path}"))?;
+    let dest = config::defaults_path(runtime)?;
+    if let Some(parent) = dest.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&dest, content)
+        .with_context(|| format!("could not write {}", dest.display()))?;
+    println!("Saved defaults for '{runtime}': {}", dest.display());
+    Ok(())
+}
+
+fn cmd_defaults_show(runtime: &str) -> Result<()> {
+    let path = config::defaults_path(runtime)?;
+    if !path.exists() {
+        println!("No defaults set for '{runtime}'. Use: helo defaults set {runtime} <settings.json>");
+        return Ok(());
+    }
+    println!("Defaults for '{runtime}' ({})\n", path.display());
+    print!("{}", std::fs::read_to_string(&path)?);
     Ok(())
 }
 

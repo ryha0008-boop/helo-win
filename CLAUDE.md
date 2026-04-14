@@ -42,7 +42,19 @@ helo run [name] [--resume [id]] [-- extra args]
 helo remove <name>
 helo clean <runtime>
 helo status
+helo defaults set <runtime> <settings.json>   # save as global default for new envs
+helo defaults show <runtime>                  # show current default
 ```
+
+## Default settings
+
+New Claude envs copy `<helo_config>/defaults/claude.json` if it exists, otherwise use the built-in template. Set your defaults once with:
+
+```
+helo defaults set claude <path/to/settings.json>
+```
+
+Defaults are stored at `%APPDATA%\helo\config\defaults\claude.json`.
 
 ## Hooks
 

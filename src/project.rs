@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-use crate::models::Instance;
+use crate::{config, models::Instance};
 
 /// Returns the env dir path for a given runtime + name inside a project.
 /// e.g. project\.pi-env-myagent
@@ -33,11 +33,15 @@ pub fn save_instance(env_dir: &Path, inst: &Instance) -> Result<()> {
     if inst.runtime == "claude" {
         let settings_path = env_dir.join("settings.json");
         if !settings_path.exists() {
-            // Hook command: warn when code commits are newer than CLAUDE.md commits.
-            let hook_cmd = r#"code_t=$(git log -1 --format="%ct" 2>/dev/null); doc_t=$(git log -1 --format="%ct" -- CLAUDE.md 2>/dev/null); [ -n "$code_t" ] && [ "${code_t:-0}" -gt "${doc_t:-0}" ] && printf '{"systemMessage":"CLAUDE.md is behind — update before finishing."}' || true"#;
-            let hook_cmd_json = hook_cmd.replace('"', "\\\"");
-            let settings = format!(
-                r#"{{
+            let content = match config::defaults_path("claude") {
+                Ok(p) if p.exists() => std::fs::read_to_string(&p)
+                    .with_context(|| format!("could not read defaults {}", p.display()))?,
+                _ => {
+                    // Built-in fallback template.
+                    let hook_cmd = r#"code_t=$(git log -1 --format="%ct" 2>/dev/null); doc_t=$(git log -1 --format="%ct" -- CLAUDE.md 2>/dev/null); [ -n "$code_t" ] && [ "${code_t:-0}" -gt "${doc_t:-0}" ] && printf '{"systemMessage":"CLAUDE.md is behind — update before finishing."}' || true"#;
+                    let hook_cmd_json = hook_cmd.replace('"', "\\\"");
+                    format!(
+                        r#"{{
   "model": "{}",
   "skipDangerousModePermissionPrompt": true,
   "permissions": {{
@@ -57,9 +61,11 @@ pub fn save_instance(env_dir: &Path, inst: &Instance) -> Result<()> {
   }}
 }}
 "#,
-                inst.model, hook_cmd_json
-            );
-            std::fs::write(&settings_path, settings)
+                        inst.model, hook_cmd_json
+                    )
+                }
+            };
+            std::fs::write(&settings_path, content)
                 .context("could not write settings.json")?;
         }
     }

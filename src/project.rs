@@ -38,8 +38,12 @@ pub fn save_instance(env_dir: &Path, inst: &Instance) -> Result<()> {
                     .with_context(|| format!("could not read defaults {}", p.display()))?,
                 _ => {
                     // Built-in fallback template.
-                    let hook_cmd = r#"code_t=$(git log -1 --format="%ct" 2>/dev/null); doc_t=$(git log -1 --format="%ct" -- CLAUDE.md 2>/dev/null); [ -n "$code_t" ] && [ "${code_t:-0}" -gt "${doc_t:-0}" ] && printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"CLAUDE.md is behind code commits — update it before doing anything else this turn."}}' || true"#;
-                    let hook_cmd_json = hook_cmd.replace('"', "\\\"");
+                    // Two-hook pattern: Stop writes a flag file; UserPromptSubmit
+                    // reads it and injects additionalContext (Stop doesn't support that field).
+                    let stop_cmd = r#"code_t=$(git log -1 --format="%ct" 2>/dev/null); doc_t=$(git log -1 --format="%ct" -- CLAUDE.md 2>/dev/null); [ -n "$code_t" ] && [ "${code_t:-0}" -gt "${doc_t:-0}" ] && touch .git/claude-md-stale || true"#;
+                    let ups_cmd = r#"if [ -f .git/claude-md-stale ]; then rm .git/claude-md-stale; printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"CLAUDE.md is behind code commits — update it before doing anything else this turn."}}'; fi"#;
+                    let stop_cmd_json = stop_cmd.replace('"', "\\\"");
+                    let ups_cmd_json = ups_cmd.replace('"', "\\\"");
                     format!(
                         r#"{{
   "model": "{}",
@@ -57,11 +61,21 @@ pub fn save_instance(env_dir: &Path, inst: &Instance) -> Result<()> {
           }}
         ]
       }}
+    ],
+    "UserPromptSubmit": [
+      {{
+        "hooks": [
+          {{
+            "type": "command",
+            "command": "{}"
+          }}
+        ]
+      }}
     ]
   }}
 }}
 "#,
-                        inst.model, hook_cmd_json
+                        inst.model, stop_cmd_json, ups_cmd_json
                     )
                 }
             };

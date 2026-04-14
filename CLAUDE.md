@@ -36,6 +36,7 @@ On first `helo run`, a `settings.json` is written to the env dir with:
 ## Commands
 
 ```
+helo                                          # interactive mode (no args)
 helo add <name> --runtime claude --provider anthropic --model sonnet [--claude-md <path>]
 helo list
 helo run [name] [--resume [id]] [-- extra args]
@@ -44,6 +45,9 @@ helo clean <runtime>
 helo status
 helo defaults set <runtime> <settings.json>   # save as global default for new envs
 helo defaults show <runtime>                  # show current default
+helo templates list                           # list built-in CLAUDE.md templates
+helo templates show <name>                    # print template content
+helo templates init                           # write templates to config dir
 ```
 
 `--claude-md <path>` — path to a CLAUDE.md template. On first `helo run`, the file is copied into the env dir (which is `CLAUDE_CONFIG_DIR` for Claude). Claude reads this as its global instructions, giving the agent its role/persona. The path is stored in the blueprint; the file is only read at placement time.

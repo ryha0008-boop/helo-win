@@ -275,8 +275,12 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
                         .or_else(|| std::env::var("ZAI_API_KEY").ok().filter(|v| !v.is_empty()))
                         .unwrap_or_default();
                     if !key.is_empty() {
-                        c.env("ANTHROPIC_AUTH_TOKEN", key);
+                        c.env("ANTHROPIC_AUTH_TOKEN", &key);
                     }
+                    // Route all Claude model tiers to the blueprint model (default: glm-5.1).
+                    c.env("ANTHROPIC_DEFAULT_HAIKU_MODEL", model);
+                    c.env("ANTHROPIC_DEFAULT_SONNET_MODEL", model);
+                    c.env("ANTHROPIC_DEFAULT_OPUS_MODEL", model);
                 }
                 _ => {
                     // Default Anthropic — use stored key or ANTHROPIC_API_KEY env var.

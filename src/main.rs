@@ -22,12 +22,15 @@ enum Commands {
         /// Runtime: pi, claude, or opencode
         #[arg(long)]
         runtime: String,
-        /// Provider name (e.g. openrouter, anthropic, openai)
+        /// Provider name (e.g. anthropic, zai, openrouter, openai)
         #[arg(long)]
         provider: String,
-        /// Model ID (e.g. openai/gpt-4o, claude-sonnet-4-6)
+        /// Model ID (e.g. glm-z1, claude-sonnet-4-6)
         #[arg(long)]
         model: String,
+        /// API key stored in the blueprint (falls back to env var if omitted)
+        #[arg(long)]
+        api_key: Option<String>,
         /// Path to a CLAUDE.md template seeded into the env dir on first run (claude runtime only)
         #[arg(long)]
         claude_md: Option<String>,
@@ -101,7 +104,7 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Add { name, runtime, provider, model, claude_md } => cmd_add(name, runtime, provider, model, claude_md),
+        Commands::Add { name, runtime, provider, model, api_key, claude_md } => cmd_add(name, runtime, provider, model, api_key, claude_md),
         Commands::List { json } => cmd_list(json),
         Commands::Remove { name } => cmd_remove(name),
         Commands::Run { name, resume, extra } => cmd_run(name, resume, extra),
@@ -114,7 +117,7 @@ fn run() -> Result<()> {
     }
 }
 
-fn cmd_add(name: String, runtime: String, provider: String, model: String, claude_md: Option<String>) -> Result<()> {
+fn cmd_add(name: String, runtime: String, provider: String, model: String, api_key: Option<String>, claude_md: Option<String>) -> Result<()> {
     if let Some(ref path) = claude_md {
         if !std::path::Path::new(path).exists() {
             bail!("--claude-md file not found: {path}");
@@ -124,7 +127,7 @@ fn cmd_add(name: String, runtime: String, provider: String, model: String, claud
     if cfg.blueprints.iter().any(|b| b.name == name) {
         bail!("blueprint '{name}' already exists. Remove it first with: helo remove {name}");
     }
-    cfg.blueprints.push(models::Blueprint { name: name.clone(), runtime, provider, model, claude_md });
+    cfg.blueprints.push(models::Blueprint { name: name.clone(), runtime, provider, model, api_key, claude_md });
     config::save(&cfg)?;
     println!("Added blueprint '{name}'.");
     Ok(())
@@ -218,6 +221,7 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<Stri
                     runtime: bp.runtime.clone(),
                     provider: bp.provider.clone(),
                     model: bp.model.clone(),
+                    api_key: bp.api_key.clone(),
                 };
                 let claude_md_content = match &bp.claude_md {
                     Some(path) => Some(
@@ -229,7 +233,7 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<Stri
                 project::save_instance(&env_dir, &inst, claude_md_content.as_deref())?;
                 println!("Created: {}", env_dir.display());
             }
-            launch(&bp.runtime, &bp.provider, &bp.model, &env_dir, resume.as_ref(), &extra)
+            launch(&bp.runtime, &bp.provider, &bp.model, bp.api_key.as_deref(), &env_dir, resume.as_ref(), &extra)
         }
         None => {
             // No name: auto-detect from instances already placed in cwd.
@@ -242,7 +246,7 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<Stri
                 ),
                 1 => {
                     let (env_dir, inst) = &instances[0];
-                    launch(&inst.runtime, &inst.provider, &inst.model, env_dir, resume.as_ref(), &extra)
+                    launch(&inst.runtime, &inst.provider, &inst.model, inst.api_key.as_deref(), env_dir, resume.as_ref(), &extra)
                 }
                 _ => {
                     eprintln!("Multiple instances in current directory:");
@@ -256,11 +260,32 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<Stri
     }
 }
 
-fn launch(runtime: &str, provider: &str, model: &str, env_dir: &Path, resume: Option<&Option<String>>, extra: &[String]) -> Result<()> {
+fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env_dir: &Path, resume: Option<&Option<String>>, extra: &[String]) -> Result<()> {
     let mut cmd = match runtime {
         "claude" => {
             let mut c = std::process::Command::new("claude");
             c.env("CLAUDE_CONFIG_DIR", env_dir);
+
+            // Provider-specific API routing for claude runtime.
+            match provider {
+                "zai" => {
+                    c.env("ANTHROPIC_BASE_URL", "https://api.z.ai/api/anthropic");
+                    let key = api_key
+                        .map(str::to_string)
+                        .or_else(|| std::env::var("ZAI_API_KEY").ok().filter(|v| !v.is_empty()))
+                        .unwrap_or_default();
+                    if !key.is_empty() {
+                        c.env("ANTHROPIC_AUTH_TOKEN", key);
+                    }
+                }
+                _ => {
+                    // Default Anthropic — use stored key or ANTHROPIC_API_KEY env var.
+                    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+                        c.env("ANTHROPIC_API_KEY", key);
+                    }
+                }
+            }
+
             // --resume <id>  → resume specific session
             // --resume       → --continue (most recent)
             if let Some(r) = resume {

@@ -45,6 +45,7 @@ helo clean <runtime>
 helo status
 helo defaults set <runtime> <settings.json>   # save as global default for new envs
 helo defaults show <runtime>                  # show current default
+helo key <name> <key>                         # set/update api_key for an existing blueprint
 helo templates list                           # list built-in CLAUDE.md templates
 helo templates show <name>                    # print template content
 helo templates init                           # write templates to config dir
@@ -89,10 +90,20 @@ Both hooks live in `.claude/settings.json` (project-level) and are seeded into n
 
 On `helo run`, injects:
 - `ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic`
-- `ANTHROPIC_AUTH_TOKEN=<key>`
+- `ANTHROPIC_AUTH_TOKEN=<key>` (z.ai uses this, not ANTHROPIC_API_KEY)
 - `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL=<model>` (routes all tiers to blueprint model)
 
 Blueprint `zai-agent` exists with model `glm-5.1`.
+
+**Key type:** z.ai subscription/plan keys work the same as API keys here — just pass as `--api-key`. The env var name `ZAI_API_KEY` is the fallback if no key is stored in the blueprint.
+
+## Updating a blueprint's API key
+
+```
+helo key <name> <key>   # store or replace the api_key in an existing blueprint
+```
+
+Interactive mode: press `k`, pick blueprint by number, enter new key.
 
 ## Built-in CLAUDE.md templates
 
@@ -122,6 +133,7 @@ Menu shows current blueprints by number. Type number to run, letter for actions:
 |-----|--------|
 | 1–N | Run blueprint N (prompts: project dir, resume?, extra args) |
 | a | Add blueprint (guided prompts for all fields) |
+| k | Set/update API key for a blueprint |
 | d | Delete blueprint (pick by number, confirm) |
 | s | Status (config path + API key presence) |
 | t | Templates submenu (`show <name>`, `init`) |

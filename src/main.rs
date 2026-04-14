@@ -28,6 +28,9 @@ enum Commands {
         /// Model ID (e.g. openai/gpt-4o, claude-sonnet-4-6)
         #[arg(long)]
         model: String,
+        /// Path to a CLAUDE.md template seeded into the env dir on first run (claude runtime only)
+        #[arg(long)]
+        claude_md: Option<String>,
     },
     /// List all blueprints
     List,
@@ -90,7 +93,7 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Add { name, runtime, provider, model } => cmd_add(name, runtime, provider, model),
+        Commands::Add { name, runtime, provider, model, claude_md } => cmd_add(name, runtime, provider, model, claude_md),
         Commands::List => cmd_list(),
         Commands::Remove { name } => cmd_remove(name),
         Commands::Run { name, resume, extra } => cmd_run(name, resume, extra),
@@ -103,12 +106,17 @@ fn run() -> Result<()> {
     }
 }
 
-fn cmd_add(name: String, runtime: String, provider: String, model: String) -> Result<()> {
+fn cmd_add(name: String, runtime: String, provider: String, model: String, claude_md: Option<String>) -> Result<()> {
+    if let Some(ref path) = claude_md {
+        if !std::path::Path::new(path).exists() {
+            bail!("--claude-md file not found: {path}");
+        }
+    }
     let mut cfg = config::load()?;
     if cfg.blueprints.iter().any(|b| b.name == name) {
         bail!("blueprint '{name}' already exists. Remove it first with: helo remove {name}");
     }
-    cfg.blueprints.push(models::Blueprint { name: name.clone(), runtime, provider, model });
+    cfg.blueprints.push(models::Blueprint { name: name.clone(), runtime, provider, model, claude_md });
     config::save(&cfg)?;
     println!("Added blueprint '{name}'.");
     Ok(())
@@ -121,10 +129,15 @@ fn cmd_list() -> Result<()> {
         println!("  helo add <name> --runtime pi --provider openrouter --model openai/gpt-4o");
         return Ok(());
     }
-    println!("{:<20} {:<10} {:<15} {}", "NAME", "RUNTIME", "PROVIDER", "MODEL");
-    println!("{}", "-".repeat(65));
+    println!("{:<20} {:<10} {:<15} {:<30} {}", "NAME", "RUNTIME", "PROVIDER", "MODEL", "CLAUDE.MD");
+    println!("{}", "-".repeat(90));
     for b in &cfg.blueprints {
-        println!("{:<20} {:<10} {:<15} {}", b.name, b.runtime, b.provider, b.model);
+        let md = b.claude_md.as_deref()
+            .map(|p| std::path::Path::new(p).file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(p))
+            .unwrap_or("-");
+        println!("{:<20} {:<10} {:<15} {:<30} {}", b.name, b.runtime, b.provider, b.model, md);
     }
     Ok(())
 }
@@ -162,7 +175,14 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<Stri
                     provider: bp.provider.clone(),
                     model: bp.model.clone(),
                 };
-                project::save_instance(&env_dir, &inst)?;
+                let claude_md_content = match &bp.claude_md {
+                    Some(path) => Some(
+                        std::fs::read_to_string(path)
+                            .with_context(|| format!("could not read --claude-md file: {path}"))?
+                    ),
+                    None => None,
+                };
+                project::save_instance(&env_dir, &inst, claude_md_content.as_deref())?;
                 println!("Created: {}", env_dir.display());
             }
             launch(&bp.runtime, &bp.provider, &bp.model, &env_dir, resume.as_ref(), &extra)

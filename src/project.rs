@@ -20,13 +20,22 @@ pub fn load_instance(env_dir: &Path) -> Option<Instance> {
     toml::from_str(&text).ok()
 }
 
-pub fn save_instance(env_dir: &Path, inst: &Instance) -> Result<()> {
+pub fn save_instance(env_dir: &Path, inst: &Instance, claude_md: Option<&str>) -> Result<()> {
     std::fs::create_dir_all(env_dir)?;
     std::fs::write(
         env_dir.join(".helo.toml"),
         toml::to_string_pretty(inst)?,
     )
     .context("could not write .helo.toml")?;
+
+    // Seed CLAUDE.md if a template was provided and none exists yet.
+    if let Some(content) = claude_md {
+        let claude_md_path = env_dir.join("CLAUDE.md");
+        if !claude_md_path.exists() {
+            std::fs::write(&claude_md_path, content)
+                .context("could not write CLAUDE.md")?;
+        }
+    }
 
     // Claude reads settings from CLAUDE_CONFIG_DIR/settings.json.
     // Without this file the model from the blueprint is silently ignored.

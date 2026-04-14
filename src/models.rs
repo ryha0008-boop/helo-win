@@ -7,6 +7,9 @@ pub struct Blueprint {
     pub runtime: String, // "pi" | "claude" | "opencode"
     pub provider: String,
     pub model: String,
+    /// Path to a CLAUDE.md template seeded into the env dir on first run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claude_md: Option<String>,
 }
 
 /// A placed blueprint — self-contained copy stored inside the env dir.

@@ -30,18 +30,21 @@ fn ensure_templates() -> anyhow::Result<()> {
 }
 
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, Shell};
 use std::path::Path;
 
 #[derive(Parser)]
-#[command(name = "helo", about = "Isolated AI agent environments — like venvs for AI")]
+#[command(name = "helo", about = "Isolated AI agent environments — like venvs for AI", version)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
+    /// First-time setup: install runtimes, set API keys, create your first blueprint
+    Init,
     /// Add a blueprint (defines an AI identity)
     Add {
         /// Name for this blueprint
@@ -80,6 +83,9 @@ enum Commands {
         /// Resume a specific session by ID (omit ID to continue most recent session)
         #[arg(short, long)]
         resume: Option<Option<String>>,
+        /// Send a prompt to the runtime (runs once and exits for Claude)
+        #[arg(short, long)]
+        prompt: Option<String>,
         /// Extra args passed through to the runtime binary
         #[arg(last = true)]
         extra: Vec<String>,
@@ -90,10 +96,13 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
-    /// Remove a runtime's global config directory (clean reinstall)
+    /// Remove instance env dirs from the current project (or global runtime dirs with --global)
     Clean {
-        /// Runtime to clean: pi, claude, or opencode
-        runtime: String,
+        /// Instance name to remove (omit to remove all instances in current dir)
+        name: Option<String>,
+        /// Clean global runtime config instead of project instances
+        #[arg(long)]
+        global: bool,
         /// Skip confirmation prompt
         #[arg(short, long)]
         yes: bool,
@@ -120,6 +129,34 @@ enum Commands {
         #[command(subcommand)]
         sub: KeysCommands,
     },
+    /// Generate shell completion scripts
+    Completion {
+        /// Shell type: bash, zsh, fish, powershell, elvish
+        shell: Shell,
+    },
+    /// Check for helo updates
+    Update,
+    /// Install or uninstall AI runtimes (claude, pi, opencode)
+    Runtime {
+        #[command(subcommand)]
+        sub: RuntimeCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum RuntimeCommands {
+    /// Install a runtime (e.g. claude, pi, opencode)
+    Install {
+        /// Runtime to install: claude, pi, opencode
+        runtime: String,
+    },
+    /// Uninstall a runtime
+    Uninstall {
+        /// Runtime to uninstall: claude, pi, opencode
+        runtime: String,
+    },
+    /// List installed runtimes and their versions
+    List,
 }
 
 #[derive(Subcommand)]
@@ -170,14 +207,6 @@ enum KeysCommands {
 }
 
 fn main() {
-    // No subcommand → interactive mode
-    if std::env::args().len() == 1 {
-        if let Err(e) = run_interactive() {
-            eprintln!("error: {e:#}");
-            std::process::exit(1);
-        }
-        return;
-    }
     if let Err(e) = run() {
         eprintln!("error: {e:#}");
         std::process::exit(1);
@@ -187,13 +216,21 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        None => run_interactive(),
+        Some(command) => run_command(command),
+    }
+}
+
+fn run_command(command: Commands) -> Result<()> {
+    match command {
+        Commands::Init => cmd_init(),
         Commands::Add { name, runtime, provider, model, api_key, claude_md } => cmd_add(name, runtime, provider, model, api_key, claude_md),
         Commands::List { json } => cmd_list(json),
         Commands::Remove { name } => cmd_remove(name),
         Commands::Key { name, key } => cmd_key(name, key),
-        Commands::Run { name, resume, extra } => cmd_run(name, resume, extra),
+        Commands::Run { name, resume, prompt, extra } => cmd_run(name, resume, prompt, extra),
         Commands::Status { json } => cmd_status(json),
-        Commands::Clean { runtime, yes } => cmd_clean(&runtime, yes),
+        Commands::Clean { name, global, yes } => cmd_clean(name, global, yes),
         Commands::Defaults { sub } => match sub {
             DefaultsCommands::Set { runtime, path } => cmd_defaults_set(&runtime, &path),
             DefaultsCommands::Show { runtime } => cmd_defaults_show(&runtime),
@@ -208,10 +245,32 @@ fn run() -> Result<()> {
             KeysCommands::Set { provider, key } => cmd_keys_set(&provider, &key),
             KeysCommands::Remove { provider } => cmd_keys_remove(&provider),
         },
+        Commands::Completion { shell } => {
+            generate(shell, &mut Cli::command(), "helo", &mut std::io::stdout());
+            Ok(())
+        }
+        Commands::Update => cmd_update(),
+        Commands::Runtime { sub } => match sub {
+            RuntimeCommands::Install { runtime } => cmd_runtime_install(&runtime),
+            RuntimeCommands::Uninstall { runtime } => cmd_runtime_uninstall(&runtime),
+            RuntimeCommands::List => cmd_runtime_list(),
+        },
     }
 }
 
+fn validate_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        bail!("name required");
+    }
+    let valid = name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !valid {
+        bail!("name must contain only letters, digits, hyphens, and underscores");
+    }
+    Ok(())
+}
+
 fn cmd_add(name: String, runtime: String, provider: String, model: String, api_key: Option<String>, claude_md: Option<String>) -> Result<()> {
+    validate_name(&name)?;
     // Resolve --claude-md: template name or file path.
     let claude_md = if let Some(ref value) = claude_md {
         ensure_templates()?;
@@ -263,13 +322,15 @@ fn cmd_list(json: bool) -> Result<()> {
         print!("[");
         for (i, b) in cfg.blueprints.iter().enumerate() {
             if i > 0 { print!(","); }
+            let has_key = b.api_key.is_some();
             print!(
-                "{{\"name\":{},\"runtime\":{},\"provider\":{},\"model\":{},\"claude_md\":{}}}",
-                json_str(&b.name),
-                json_str(&b.runtime),
-                json_str(&b.provider),
-                json_str(&b.model),
-                b.claude_md.as_deref().map(json_str).unwrap_or_else(|| "null".to_string()),
+                "{{\"name\":{},\"runtime\":{},\"provider\":{},\"model\":{},\"claude_md\":{},\"has_key\":{}}}",
+                project::json_str(&b.name),
+                project::json_str(&b.runtime),
+                project::json_str(&b.provider),
+                project::json_str(&b.model),
+                b.claude_md.as_deref().map(|s| project::json_str(s)).unwrap_or_else(|| "null".to_string()),
+                has_key,
             );
         }
         println!("]");
@@ -291,25 +352,6 @@ fn cmd_list(json: bool) -> Result<()> {
         println!("{:<20} {:<10} {:<15} {:<30} {}", b.name, b.runtime, b.provider, b.model, md);
     }
     Ok(())
-}
-
-/// Minimal JSON string encoder — escapes the chars required by RFC 8259.
-fn json_str(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"'  => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
 }
 
 fn cmd_remove(name: String) -> Result<()> {
@@ -374,6 +416,300 @@ fn cmd_keys_remove(provider: &str) -> Result<()> {
     Ok(())
 }
 
+// ── Runtime install / uninstall ─────────────────────────────────────────────
+
+fn which_runtime(name: &str) -> Result<&'static str> {
+    match name {
+        "claude" => Ok("claude"),
+        "pi" => Ok("pi"),
+        "opencode" => Ok("opencode"),
+        other => bail!("unknown runtime '{other}'. Supported: claude, pi, opencode"),
+    }
+}
+
+fn runtime_install_cmd(runtime: &str) -> (&'static str, &'static [&'static str]) {
+    match runtime {
+        "claude" => ("npm", &["install", "-g", "@anthropic-ai/claude-code@latest"]),
+        "pi" => ("npm", &["install", "-g", "@anthropic-ai/pi@latest"]),
+        "opencode" => ("go", &["install", "github.com/opencode-ai/opencode@latest"]),
+        _ => ("", &[]),
+    }
+}
+
+fn runtime_uninstall_cmd(runtime: &str) -> (&'static str, &'static [&'static str]) {
+    match runtime {
+        "claude" => ("npm", &["uninstall", "-g", "@anthropic-ai/claude-code"]),
+        "pi" => ("npm", &["uninstall", "-g", "@anthropic-ai/pi"]),
+        "opencode" => ("go", &["clean", "-i", "github.com/opencode-ai/opencode@latest"]),
+        _ => ("", &[]),
+    }
+}
+
+fn cmd_runtime_install(runtime: &str) -> Result<()> {
+    which_runtime(runtime)?;
+    let (bin, args) = runtime_install_cmd(runtime);
+    if bin.is_empty() { bail!("unknown runtime"); }
+
+    println!("Installing {runtime}...");
+    let status = std::process::Command::new(bin)
+        .args(args)
+        .status()
+        .with_context(|| format!("{bin} not found — install {} first", bin))?;
+
+    if status.success() {
+        println!("Installed {runtime}.");
+    } else {
+        bail!("failed to install {runtime} — {bin} exited with {}", status.code().unwrap_or(1));
+    }
+    Ok(())
+}
+
+fn cmd_runtime_uninstall(runtime: &str) -> Result<()> {
+    which_runtime(runtime)?;
+    let (bin, args) = runtime_uninstall_cmd(runtime);
+    if bin.is_empty() { bail!("unknown runtime"); }
+
+    println!("Uninstalling {runtime}...");
+    let status = std::process::Command::new(bin)
+        .args(args)
+        .status()
+        .with_context(|| format!("{bin} not found"))?;
+
+    if status.success() {
+        println!("Uninstalled {runtime}.");
+    } else {
+        bail!("failed to uninstall {runtime} — {bin} exited with {}", status.code().unwrap_or(1));
+    }
+    Ok(())
+}
+
+fn cmd_runtime_list() -> Result<()> {
+    let runtimes = [("claude", "npm"), ("pi", "npm"), ("opencode", "go")];
+    println!("{:<12} {:<10} {}", "RUNTIME", "STATUS", "VERSION");
+    println!("{}", "-".repeat(50));
+    for (name, _installer) in &runtimes {
+        let version = std::process::Command::new(name)
+            .arg("--version")
+            .output();
+        match version {
+            Ok(out) if out.status.success() => {
+                let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                let v_short = v.lines().next().unwrap_or("unknown");
+                println!("{:<12} {:<10} {}", name, "installed", v_short);
+            }
+            _ => {
+                println!("{:<12} {:<10} {}", name, "missing", "-");
+            }
+        }
+    }
+    Ok(())
+}
+
+// ── First-time setup (helo init) ────────────────────────────────────────────
+
+fn is_installed(runtime: &str) -> bool {
+    std::process::Command::new(runtime)
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn cmd_init() -> Result<()> {
+    let current = env!("CARGO_PKG_VERSION");
+    println!("helo v{current} — first-time setup");
+    println!();
+
+    // Step 1: Install runtimes
+    println!("═══ Step 1: Install runtimes ═══");
+    println!();
+    let runtimes = ["claude", "pi", "opencode"];
+
+    let mut installed = Vec::new();
+    for name in &runtimes {
+        let (installer, install_args) = runtime_install_cmd(name);
+        if is_installed(name) {
+            let ver = std::process::Command::new(name)
+                .arg("--version")
+                .output()
+                .ok()
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().lines().next().unwrap_or("").to_string())
+                .unwrap_or_default();
+            println!("  {} — already installed ({})", name, ver);
+            installed.push(name.to_string());
+        } else {
+            let has_installer = std::process::Command::new(installer)
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+
+            if !has_installer {
+                println!("  {} — skipped ({} not found)", name, installer);
+                continue;
+            }
+
+            print!("  {} — not found. Install? [Y/n]: ", name);
+            use std::io::Write;
+            std::io::stdout().flush()?;
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            if !input.trim().eq_ignore_ascii_case("n") {
+                print!("  Installing {}...", name);
+                std::io::stdout().flush()?;
+                let status = std::process::Command::new(installer)
+                    .args(install_args)
+                    .status();
+                match status {
+                    Ok(s) if s.success() => {
+                        println!(" done.");
+                        installed.push(name.to_string());
+                    }
+                    Ok(s) => println!(" failed (exit code {})", s.code().unwrap_or(1)),
+                    Err(_) => println!(" failed"),
+                }
+            } else {
+                println!("  Skipped.");
+            }
+        }
+    }
+
+    if installed.is_empty() {
+        println!();
+        println!("No runtimes installed. Install at least one to use helo:");
+        println!("  helo runtime install claude");
+        println!("  helo runtime install pi");
+        return Ok(());
+    }
+
+    // Step 2: API keys
+    println!();
+    println!("═══ Step 2: API keys ═══");
+    println!();
+    println!("  Set API keys for providers you want to use.");
+    println!("  Keys are stored securely in helo's config.");
+    println!("  (blank to skip)");
+    println!();
+
+    let providers = [
+        ("anthropic", "Anthropic (Claude models)"),
+        ("zai", "Z.AI (GLM models, subscription keys)"),
+        ("openrouter", "OpenRouter (multi-model gateway)"),
+        ("openai", "OpenAI"),
+    ];
+
+    let mut cfg = config::load()?;
+    for (provider, description) in &providers {
+        if cfg.keys.contains_key(*provider) {
+            println!("  {} — key already set", provider);
+            continue;
+        }
+        // Check env var
+        let env_var = provider_key_env(provider);
+        let has_env = std::env::var(&env_var).map(|v| !v.is_empty()).unwrap_or(false);
+        let _hint = if has_env { " (env var exists)" } else { "" };
+        print!("  {} [{}]: ", provider, description);
+        use std::io::Write;
+        std::io::stdout().flush()?;
+        let mut key_input = String::new();
+        std::io::stdin().read_line(&mut key_input)?;
+        let key = key_input.trim().to_string();
+        if !key.is_empty() {
+            cfg.keys.insert(provider.to_string(), key);
+        }
+    }
+    config::save(&cfg)?;
+
+    // Step 3: Create first blueprint
+    println!();
+    println!("═══ Step 3: Create your first blueprint ═══");
+    println!();
+
+    let cfg = config::load()?;
+    if !cfg.blueprints.is_empty() {
+        println!("  You already have {} blueprint(s). Done!", cfg.blueprints.len());
+        println!();
+        println!("Setup complete. Run `helo` for interactive mode or `helo run <name>` to launch.");
+        return Ok(());
+    }
+
+    let name = iread("  Blueprint name (e.g. dev-agent): ")?;
+    if name.trim().is_empty() {
+        println!("  Skipped. Create one later with: helo add <name> --runtime <r> --provider <p> --model <m>");
+        println!();
+        println!("Setup complete. Run `helo` for interactive mode.");
+        return Ok(());
+    }
+    validate_name(&name)?;
+
+    // Show available runtimes
+    println!("  Available runtimes:");
+    for r in &installed {
+        println!("    {}", r);
+    }
+
+    let runtime = if installed.len() == 1 {
+        println!("  Runtime: {} (auto-detected)", installed[0]);
+        installed[0].clone()
+    } else {
+        let r = iread("  Runtime [claude/pi/opencode]: ")?;
+        if r.is_empty() { bail!("runtime required"); }
+        r
+    };
+
+    let provider = iread("  Provider [anthropic/zai/openrouter/openai]: ")?;
+    if provider.is_empty() { bail!("provider required"); }
+
+    let model = iread("  Model (e.g. sonnet, glm-5.1, gpt-4o): ")?;
+    if model.is_empty() { bail!("model required"); }
+
+    // Auto-fill API key from global keys
+    let api_key = cfg.keys.get(&provider).cloned();
+
+    cmd_add(name, runtime, provider, model, api_key, None)?;
+
+    println!();
+    println!("Setup complete!");
+    println!();
+    println!("Next steps:");
+    println!("  helo                    — interactive mode");
+    println!("  helo run {}            — launch your agent", cfg.blueprints.last().map(|b| b.name.as_str()).unwrap_or("<name>"));
+    println!("  helo run {} -p \"...\"   — send a prompt and exit", cfg.blueprints.last().map(|b| b.name.as_str()).unwrap_or("<name>"));
+
+    Ok(())
+}
+
+// ── Self-update ─────────────────────────────────────────────────────────────
+
+fn cmd_update() -> Result<()> {
+    let current = env!("CARGO_PKG_VERSION");
+    println!("helo v{current}");
+
+    // Check if cargo is available
+    let has_cargo = std::process::Command::new("cargo")
+        .arg("--version")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if has_cargo {
+        println!("Updating via cargo...");
+        let status = std::process::Command::new("cargo")
+            .args(["install", "--path", "."])
+            .status()
+            .context("could not run cargo")?;
+        if status.success() {
+            println!("Updated. Re-run to use the new version.");
+        } else {
+            bail!("cargo install failed");
+        }
+    } else {
+        println!("Cargo not found. Download latest from:");
+        println!("  https://github.com/ryha0008-boop/helo-win/releases");
+    }
+    Ok(())
+}
+
 fn mask_key(key: &str) -> String {
     if key.len() <= 8 {
         "*".repeat(key.len())
@@ -382,7 +718,17 @@ fn mask_key(key: &str) -> String {
     }
 }
 
-fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<String>) -> Result<()> {
+fn cmd_run(name: Option<String>, resume: Option<Option<String>>, prompt: Option<String>, extra: Vec<String>) -> Result<()> {
+    // Prepend prompt as -p <prompt> to extra args
+    let extra: Vec<String> = match prompt {
+        Some(p) => {
+            let mut v = vec!["-p".to_string(), p];
+            v.extend(extra);
+            v
+        }
+        None => extra,
+    };
+
     let cwd = std::env::current_dir()?;
     let cfg = config::load()?;
 
@@ -442,6 +788,21 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<Stri
 }
 
 fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env_dir: &Path, resume: Option<&Option<String>>, extra: &[String]) -> Result<i32> {
+    #[cfg(windows)]
+    {
+        // Hooks use POSIX commands (sh, $(), test) — require Git Bash on PATH
+        if runtime == "claude" && env_dir.join("settings.json").exists() {
+            let has_sh = std::process::Command::new("sh")
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if !has_sh {
+                eprintln!("warning: hooks use POSIX shell commands. Install Git Bash and ensure 'sh' is on PATH.");
+            }
+        }
+    }
+
     match runtime {
         "claude" => {
             let mut c = std::process::Command::new("claude");
@@ -488,16 +849,16 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
                 .map(str::to_string)
                 .or_else(|| std::env::var(&key_env).ok().filter(|v| !v.is_empty()))
                 .unwrap_or_default();
-            let mut pi_args = format!("pi --provider {provider} --model {model}");
+            let mut pi_args = format!("pi --provider {} --model {}", shell_quote(provider), shell_quote(model));
             if !api_key_val.is_empty() {
-                pi_args.push_str(&format!(" --api-key {api_key_val}"));
+                pi_args.push_str(&format!(" --api-key {}", shell_quote(&api_key_val)));
             }
             if let Some(Some(id)) = resume {
-                pi_args.push_str(&format!(" --resume {id}"));
+                pi_args.push_str(&format!(" --resume {}", shell_quote(id)));
             }
             for arg in extra {
                 pi_args.push(' ');
-                pi_args.push_str(arg);
+                pi_args.push_str(&shell_quote(arg));
             }
 
             // Platform-specific shell invocation
@@ -554,29 +915,92 @@ fn provider_key_env(provider: &str) -> String {
     .to_string()
 }
 
-fn cmd_clean(runtime: &str, yes: bool) -> Result<()> {
-    let home = directories::BaseDirs::new()
-        .context("could not determine home directory")?
-        .home_dir()
-        .to_path_buf();
+fn cmd_clean(name: Option<String>, global: bool, yes: bool) -> Result<()> {
+    if global {
+        // Global clean: remove runtime's global config dir
+        let runtime = name.as_deref().with_context(|| "specify runtime: helo clean --global <runtime>")?;
+        let home = directories::BaseDirs::new()
+            .context("could not determine home directory")?
+            .home_dir()
+            .to_path_buf();
 
-    let global_dir = match runtime {
-        "pi" => home.join(".pi"),
-        "claude" => home.join(".claude"),
-        "opencode" => home.join(".opencode"),
-        other => bail!("unknown runtime '{other}'. Supported: pi, claude, opencode"),
-    };
+        let global_dir = match runtime {
+            "pi" => home.join(".pi"),
+            "claude" => home.join(".claude"),
+            "opencode" => home.join(".opencode"),
+            other => bail!("unknown runtime '{other}'. Supported: pi, claude, opencode"),
+        };
 
-    if !global_dir.exists() {
-        println!("Nothing to clean — {} does not exist.", global_dir.display());
+        if !global_dir.exists() {
+            println!("Nothing to clean — {} does not exist.", global_dir.display());
+            return Ok(());
+        }
+
+        if !yes {
+            eprintln!("WARNING: This deletes {} and ALL its contents (sessions, memory, config).", global_dir.display());
+            print!("Type 'yes' to confirm: ");
+            use std::io::Write;
+            std::io::stdout().flush()?;
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            if input.trim() != "yes" {
+                println!("Aborted.");
+                return Ok(());
+            }
+        }
+
+        std::fs::remove_dir_all(&global_dir)
+            .with_context(|| format!("could not remove {}", global_dir.display()))?;
+        println!("Removed {}.", global_dir.display());
         return Ok(());
     }
 
+    // Project-level clean: remove instance env dirs
+    let cwd = std::env::current_dir()?;
+    let instances = project::find_instances(&cwd);
+
+    if let Some(target) = name {
+        let found: Vec<_> = instances.iter().filter(|(_, inst)| inst.name == target).collect();
+        if found.is_empty() {
+            bail!("no instance named '{target}' in current directory");
+        }
+        if !yes {
+            println!("Will remove:");
+            for (dir, _) in &found {
+                println!("  {}", dir.display());
+            }
+            print!("Proceed? [y/N] ");
+            use std::io::Write;
+            std::io::stdout().flush()?;
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            if !input.trim().eq_ignore_ascii_case("y") {
+                println!("Aborted.");
+                return Ok(());
+            }
+        }
+        for (dir, _) in &found {
+            std::fs::remove_dir_all(dir)
+                .with_context(|| format!("could not remove {}", dir.display()))?;
+            println!("Removed {} ({})", dir.display(), target);
+        }
+        return Ok(());
+    }
+
+    // No name — clean all instances
+    if instances.is_empty() {
+        println!("No instances in current directory.");
+        return Ok(());
+    }
+
+    let to_remove = &instances;
+
     if !yes {
-        print!(
-            "Delete {} and all its contents? [y/N] ",
-            global_dir.display()
-        );
+        println!("Will remove:");
+        for (dir, inst) in to_remove.iter() {
+            println!("  {} ({})", dir.display(), inst.name);
+        }
+        print!("Proceed? [y/N] ");
         use std::io::Write;
         std::io::stdout().flush()?;
         let mut input = String::new();
@@ -587,9 +1011,11 @@ fn cmd_clean(runtime: &str, yes: bool) -> Result<()> {
         }
     }
 
-    std::fs::remove_dir_all(&global_dir)
-        .with_context(|| format!("could not remove {}", global_dir.display()))?;
-    println!("Removed {}.", global_dir.display());
+    for (dir, inst) in to_remove.iter() {
+        std::fs::remove_dir_all(dir)
+            .with_context(|| format!("could not remove {}", dir.display()))?;
+        println!("Removed {} ({})", dir.display(), inst.name);
+    }
     Ok(())
 }
 
@@ -635,13 +1061,13 @@ fn cmd_status(json: bool) -> Result<()> {
 
     if json {
         print!("{{");
-        print!("\"config_path\":{},", json_str(&path.display().to_string()));
+        print!("\"config_path\":{},", project::json_str(&path.display().to_string()));
         print!("\"blueprints\":{},", cfg.blueprints.len());
         print!("\"api_keys\":{{");
         for (i, (env, label)) in keys.iter().enumerate() {
             if i > 0 { print!(","); }
             let set = std::env::var(env).map(|v| !v.is_empty()).unwrap_or(false);
-            print!("{}:{}", json_str(label), set);
+            print!("{}:{}", project::json_str(label), set);
         }
         print!("}}");
         println!("}}");
@@ -674,7 +1100,16 @@ fn iread(prompt_str: &str) -> Result<String> {
 }
 
 fn run_interactive() -> Result<()> {
-    println!("helo — AI agent environment manager  (q to quit)");
+    println!("helo v{} — AI agent environment manager", env!("CARGO_PKG_VERSION"));
+
+    // First-run hint
+    let cfg = config::load()?;
+    if cfg.blueprints.is_empty() {
+        println!();
+        println!("  No blueprints yet. Run `helo init` for guided setup,");
+        println!("  or press `a` to add one manually.");
+    }
+
     loop {
         let cfg = config::load()?;
         println!();
@@ -762,8 +1197,13 @@ fn interactive_run(bp: &models::Blueprint) -> Result<()> {
         id              => Some(Some(id.to_string())),
     };
 
-    let extra_input = iread("Extra args (e.g. -p \"prompt\") [blank=none]: ")?;
-    let extra = if extra_input.is_empty() { vec![] } else { shell_split(&extra_input) };
+    let prompt_input = iread("Prompt [blank=interactive]: ")?;
+    let extra_input = iread("Extra args [blank=none]: ")?;
+    let mut extra = if extra_input.is_empty() { vec![] } else { shell_split(&extra_input) };
+    if !prompt_input.is_empty() {
+        extra.insert(0, prompt_input);
+        extra.insert(0, "-p".to_string());
+    }
 
     let env_dir = project::env_dir(&project_dir, &bp.runtime, &bp.name);
     if !env_dir.exists() {
@@ -884,9 +1324,39 @@ fn interactive_templates() -> Result<()> {
 }
 
 fn interactive_clean() -> Result<()> {
-    let runtime = iread("Runtime to clean [claude/pi/opencode, blank=cancel]: ")?;
-    if runtime.is_empty() { return Ok(()); }
-    cmd_clean(&runtime, false)
+    let cwd = std::env::current_dir()?;
+    let instances = project::find_instances(&cwd);
+    println!("Clean instances from current directory:");
+    if instances.is_empty() {
+        println!("  (none)");
+    } else {
+        for (i, (_, inst)) in instances.iter().enumerate() {
+            println!("  {}  {}", i + 1, inst.name);
+        }
+    }
+    println!();
+    println!("  <number>  remove instance");
+    println!("  global    clean global runtime config");
+    println!("  q         back");
+    let input = iread("> ")?;
+    let lower = input.to_lowercase();
+    match lower.as_str() {
+        "q" | "" => Ok(()),
+        "global" => {
+            let runtime = iread("Runtime [claude/pi/opencode]: ")?;
+            if runtime.is_empty() { return Ok(()); }
+            cmd_clean(Some(runtime), true, false)
+        }
+        _ => {
+            if let Ok(n) = input.parse::<usize>() {
+                if n >= 1 && n <= instances.len() {
+                    let name = instances[n - 1].1.name.clone();
+                    return cmd_clean(Some(name), false, false);
+                }
+            }
+            cmd_clean(Some(input), false, false)
+        }
+    }
 }
 
 fn interactive_defaults() -> Result<()> {
@@ -944,6 +1414,17 @@ fn interactive_keys() -> Result<()> {
     Ok(())
 }
 
+/// Shell-quote a string for safe inclusion in a sh -c / cmd /c command.
+fn shell_quote(s: &str) -> String {
+    if s.is_empty() { return "''".to_string(); }
+    // If only safe chars, no quoting needed
+    if s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.' || c == '/') {
+        return s.to_string();
+    }
+    // Use single-quote wrapping, escaping any embedded single quotes
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 /// Basic shell-like split — handles double-quoted strings.
 fn shell_split(s: &str) -> Vec<String> {
     let mut args = Vec::new();
@@ -967,6 +1448,7 @@ fn shell_split(s: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::project::json_str;
 
     // ── json_str ──────────────────────────────────────────────────────────────
 
@@ -1013,6 +1495,35 @@ mod tests {
     #[test]
     fn json_str_preserves_unicode() {
         assert_eq!(json_str("日本語"), "\"日本語\"");
+    }
+
+    // ── shell_split ───────────────────────────────────────────────────────────
+
+    // ── shell_quote ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn shell_quote_safe_chars() {
+        assert_eq!(shell_quote("hello"), "hello");
+    }
+
+    #[test]
+    fn shell_quote_empty() {
+        assert_eq!(shell_quote(""), "''");
+    }
+
+    #[test]
+    fn shell_quote_spaces() {
+        assert_eq!(shell_quote("hello world"), "'hello world'");
+    }
+
+    #[test]
+    fn shell_quote_single_quote() {
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
+    }
+
+    #[test]
+    fn shell_quote_special_chars() {
+        assert_eq!(shell_quote("a;b"), "'a;b'");
     }
 
     // ── shell_split ───────────────────────────────────────────────────────────

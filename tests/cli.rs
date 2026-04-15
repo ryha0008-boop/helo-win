@@ -434,21 +434,30 @@ fn run_no_name_no_instances() {
 // ── clean ─────────────────────────────────────────────────────────────────────
 
 #[test]
-fn clean_nonexistent_dir_or_success() {
-    // Note: this test isn't fully isolated because clean checks ~/.claude
-    // which depends on the actual user's home directory.
-    // We just verify it exits successfully (0) whether or not the dir exists.
+fn clean_project_no_instances() {
+    // No name arg = clean all instances in current dir. Empty dir = success.
     let cfg = tempfile::tempdir().unwrap();
-    let (_, _, code) = helo(cfg.path(), &["clean", "claude", "--yes"]);
+    let project = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo_in_dir(cfg.path(), project.path(), &["clean", "--yes"]);
     assert_eq!(code, Some(0));
+    assert!(out.contains("No instances"));
 }
 
 #[test]
-fn clean_unknown_runtime_fails() {
+fn clean_global_unknown_runtime_fails() {
     let cfg = tempfile::tempdir().unwrap();
-    let (_, err, code) = helo(cfg.path(), &["clean", "unknown", "--yes"]);
+    let (_, err, code) = helo(cfg.path(), &["clean", "--global", "unknown", "--yes"]);
     assert_ne!(code, Some(0));
     assert!(err.contains("unknown runtime"));
+}
+
+#[test]
+fn clean_specific_instance_not_found() {
+    let cfg = tempfile::tempdir().unwrap();
+    let project = tempfile::tempdir().unwrap();
+    let (_, err, code) = helo_in_dir(cfg.path(), project.path(), &["clean", "ghost", "--yes"]);
+    assert_ne!(code, Some(0));
+    assert!(err.contains("no instance named 'ghost'"));
 }
 
 // ── help output ───────────────────────────────────────────────────────────────
@@ -461,3 +470,94 @@ fn help_flag() {
     assert!(out.contains("Isolated AI agent environments"));
     assert!(out.contains("Commands:"));
 }
+
+// ── version flag ─────────────────────────────────────────────────────────────
+
+#[test]
+fn version_flag() {
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &["--version"]);
+    // clap exits with 0 on --version (some versions use 2, accept both)
+    assert!(code == Some(0) || code == Some(2));
+    assert!(out.contains("helo"));
+}
+
+// ── name validation ──────────────────────────────────────────────────────────
+
+#[test]
+fn add_rejects_spaces_in_name() {
+    let cfg = tempfile::tempdir().unwrap();
+    let (_, err, code) = helo(cfg.path(), &[
+        "add", "bad name", "--runtime", "claude", "--provider", "anthropic", "--model", "s"
+    ]);
+    assert_ne!(code, Some(0));
+    assert!(err.contains("letters, digits, hyphens, and underscores"));
+}
+
+#[test]
+fn add_rejects_special_chars_in_name() {
+    let cfg = tempfile::tempdir().unwrap();
+    let (_, err, code) = helo(cfg.path(), &[
+        "add", "na/me", "--runtime", "claude", "--provider", "anthropic", "--model", "s"
+    ]);
+    assert_ne!(code, Some(0));
+    assert!(err.contains("letters, digits, hyphens, and underscores"));
+}
+
+#[test]
+fn add_allows_hyphens_and_underscores() {
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &[
+        "add", "my-agent_v2", "--runtime", "claude", "--provider", "anthropic", "--model", "s"
+    ]);
+    assert_eq!(code, Some(0));
+    assert!(out.contains("Added blueprint 'my-agent_v2'"));
+}
+
+// ── completion ───────────────────────────────────────────────────────────────
+
+#[test]
+fn completion_bash() {
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &["completion", "bash"]);
+    assert_eq!(code, Some(0));
+    assert!(out.contains("helo"));
+}
+
+// ── list --json has_key ──────────────────────────────────────────────────────
+
+#[test]
+fn list_json_has_key_field() {
+    let cfg = tempfile::tempdir().unwrap();
+    helo(cfg.path(), &[
+        "add", "withkey", "--runtime", "claude", "--provider", "anthropic",
+        "--model", "s", "--api-key", "sk-test"
+    ]);
+    helo(cfg.path(), &[
+        "add", "nokey", "--runtime", "claude", "--provider", "anthropic", "--model", "s"
+    ]);
+
+    let (out, _, code) = helo(cfg.path(), &["list", "--json"]);
+    assert_eq!(code, Some(0));
+    let parsed: serde_json::Value = serde_json::from_str(out.trim()).unwrap();
+    let arr = parsed.as_array().unwrap();
+
+    let withkey = arr.iter().find(|v| v["name"] == "withkey").unwrap();
+    assert_eq!(withkey["has_key"], true);
+
+    let nokey = arr.iter().find(|v| v["name"] == "nokey").unwrap();
+    assert_eq!(nokey["has_key"], false);
+}
+
+// ── runtime list ─────────────────────────────────────────────────────────────
+
+#[test]
+fn runtime_list() {
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &["runtime", "list"]);
+    assert_eq!(code, Some(0));
+    assert!(out.contains("claude"));
+    assert!(out.contains("pi"));
+    assert!(out.contains("opencode"));
+}
+

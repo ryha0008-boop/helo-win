@@ -26,3 +26,5 @@ Thumbs.db
 *~
 *.save
 .claude/worktrees/
+.claude/a.txt
+New folder/

@@ -4,12 +4,16 @@ Run helo non-interactively for automation, CI/CD, or orchestration by another AI
 
 ## Non-interactive run
 
-Pass extra args after `--` — they go directly to the runtime binary:
+Use `-p` to send a prompt directly:
 
 ```bash
 # Single prompt and exit
-helo run myagent -- -p "fix the bug in main.rs"
+helo run myagent -p "fix the bug in main.rs"
+```
 
+Or pass extra args after `--` for full control:
+
+```bash
 # With JSON output
 helo run myagent -- -p "explain this code" --output-format json
 
@@ -35,11 +39,11 @@ helo status --json    # config path + key status
 helo list --json | jq '.[] | select(.name == "myagent")'
 
 # Run a prompt and capture output
-result=$(helo run myagent -- -p "what does main.rs do?" --output-format json)
+result=$(helo run myagent -p "what does main.rs do?" -- --output-format json)
 
 # Create, run, and clean up
 helo add temp-agent --runtime claude --provider anthropic --model sonnet
-helo run temp-agent -- -p "analyze this codebase"
+helo run temp-agent -p "analyze this codebase"
 helo remove temp-agent
 ```
 

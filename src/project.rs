@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::{config, models::Instance};
 
 /// Minimal JSON string encoder — escapes the chars required by RFC 8259.
-fn json_str(s: &str) -> String {
+pub fn json_str(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
     for c in s.chars() {

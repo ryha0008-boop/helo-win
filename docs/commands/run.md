@@ -5,7 +5,7 @@ Place a blueprint into a project directory and launch the agent. Creates the iso
 ## Usage
 
 ```bash
-helo run [name] [--resume [id]] [-- extra args]
+helo run [name] [--resume [id]] [-p <prompt>] [-- extra args]
 ```
 
 ## Arguments
@@ -14,6 +14,7 @@ helo run [name] [--resume [id]] [-- extra args]
 |----------|-------------|
 | `name` | Blueprint name to run. Omit if only one instance exists in the current directory. |
 | `--resume` / `-r` | Resume a session. No ID = continue most recent. With ID = resume specific session. |
+| `--prompt` / `-p` | Send a prompt to the runtime. Runs once and exits (Claude's `-p` mode). |
 | `-- extra args` | Everything after `--` is passed directly to the runtime binary. |
 
 ## What happens
@@ -39,11 +40,17 @@ helo run myagent --resume
 # Resume specific session
 helo run myagent --resume abc123-session-id
 
-# Headless one-shot prompt
-helo run myagent -- -p "fix the bug in main.rs"
+# Send a prompt (runs once and exits)
+helo run myagent -p "fix the bug in main.rs"
 
-# With output format
-helo run myagent -- -p "explain this code" --output-format json
+# Combine prompt with resume
+helo run myagent --resume -p "continue fixing the tests"
+
+# Headless with output format
+helo run myagent -p "explain this code" -- --output-format json
+
+# Full passthrough for advanced use
+helo run myagent -- -p "your prompt" --output-format json
 
 # Run without specifying name (auto-detects if only one instance)
 helo run

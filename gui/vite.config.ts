@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import path from 'path';
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   root: 'src/renderer',
   base: './',
   build: {
@@ -13,6 +14,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@shared': path.resolve(__dirname, 'src/shared'),
+      '@': path.resolve(__dirname, 'src'),
     },
   },
   server: {
@@ -26,6 +28,7 @@ export default defineConfig({
     root: '.',
     alias: {
       '@shared': path.resolve(__dirname, 'src/shared'),
+      '@': path.resolve(__dirname, 'src'),
     },
   },
 });

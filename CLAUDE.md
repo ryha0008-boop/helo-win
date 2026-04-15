@@ -57,32 +57,45 @@ On first `helo run`, a `settings.json` is written to the env dir.
 
 ```
 helo                                          # interactive mode (no args)
+helo --version                                # show version
+helo init                                     # first-time setup wizard
 helo add <name> --runtime claude --provider anthropic --model sonnet [--claude-md <path>]
-helo list
-helo run [name] [--resume [id]] [-- extra args]
+helo list [--json]                            # list blueprints
+helo run [name] [--resume [id]] [-p <prompt>] [-- extra args]
 helo remove <name>
-helo clean <runtime>
-helo status
-helo defaults set <runtime> <settings.json>   # save as global default for new envs
-helo defaults show <runtime>                  # show current default
+helo clean [name] [--global] [--yes]          # remove instance env dirs (or global dirs with --global)
+helo status [--json]
 helo key <name> <key>                         # set/update api_key for an existing blueprint
 helo keys list                                # list global API keys
 helo keys set <provider> <key>                # set global key (auto-applied on add)
 helo keys remove <provider>                   # remove global key
+helo defaults set <runtime> <settings.json>   # save as global default for new envs
+helo defaults show <runtime>                  # show current default
 helo templates list                           # list built-in CLAUDE.md templates
 helo templates show <name>                    # print template content
 helo templates init                           # write templates to config dir
+helo completion <shell>                       # generate shell completions (bash/zsh/fish/powershell)
+helo runtime install <runtime>                # install a runtime (claude/pi/opencode)
+helo runtime uninstall <runtime>              # uninstall a runtime
+helo runtime list                             # show installed runtimes and versions
+helo update                                   # self-update
 ```
 
 `--claude-md <path>` — path to a CLAUDE.md template. On first `helo run`, the file is copied into the env dir (which is `CLAUDE_CONFIG_DIR` for Claude). Claude reads this as its global instructions, giving the agent its role/persona. The path is stored in the blueprint; the file is only read at placement time.
 
 ## Non-interactive / headless use
 
-Pass extra args after `--` — they go directly to the runtime binary:
+Send a prompt with `-p` — runs once and exits:
 
 ```
-helo run mazas-bahuras -- -p "your prompt"
-helo run mazas-bahuras -- -p "your prompt" --output-format json
+helo run myagent -p "fix the bug in main.rs"
+```
+
+Or pass extra args after `--` — they go directly to the runtime binary:
+
+```
+helo run myagent -- -p "your prompt" --output-format json
+helo run myagent --resume -- -p "continue fixing"
 ```
 
 Claude's `-p` / `--print` flag runs a single prompt and exits. All helo isolation (CLAUDE_CONFIG_DIR, settings, memory) still applies. Useful for orchestration by another AI or automation scripts.
@@ -165,6 +178,49 @@ helo add <name> ... --claude-md /path/to/file  # or absolute path as before
 
 Templates: `coding` (coding agent), `assistant` (general), `devops` (sysadmin).
 
+## Runtime management
+
+Install/uninstall AI runtimes from within helo:
+
+```
+helo runtime install claude     # npm install -g @anthropic-ai/claude-code
+helo runtime install pi         # npm install -g @anthropic-ai/pi
+helo runtime install opencode   # go install github.com/opencode-ai/opencode
+helo runtime uninstall claude
+helo runtime list               # show installed runtimes and versions
+```
+
+Requires `npm` (for claude/pi) or `go` (for opencode) on PATH.
+
+## Clean
+
+Remove instance env dirs from a project, or global runtime config:
+
+```
+helo clean              # remove all instance env dirs in current project
+helo clean myagent      # remove specific instance
+helo clean --global claude  # remove ~/.claude (requires typing 'yes')
+```
+
+`--global` requires explicit `yes` confirmation — protects accidental global wipe.
+
+## Shell completions
+
+```
+helo completion bash       # bash
+helo completion zsh        # zsh
+helo completion fish       # fish
+helo completion powershell # PowerShell
+```
+
+## Self-update
+
+```
+helo update    # updates via cargo install --path .
+```
+
+Requires `cargo` on PATH. Otherwise prints download URL.
+
 ## Interactive mode
 
 `helo` with no arguments enters interactive mode — a menu-driven loop covering all functionality.
@@ -178,20 +234,34 @@ Menu shows current blueprints by number. Type number to run, letter for actions:
 
 | Key | Action |
 |-----|--------|
-| 1–N | Run blueprint N (prompts: project dir, resume?, extra args) |
+| 1–N | Run blueprint N (prompts: project dir, resume?, prompt?, extra args) |
 | a | Add blueprint (guided prompts for all fields) |
 | k | Set/update API key for a blueprint |
 | g | Global keys (set/remove/list) |
 | d | Delete blueprint (pick by number, confirm) |
 | s | Status (config path + API key presence) |
 | t | Templates submenu (`show <name>`, `init`) |
-| c | Clean runtime global dir |
+| c | Clean instance env dirs or global runtime config |
 | x | Defaults submenu (`show <runtime>`, `set <runtime> <path>`) |
 | q | Quit |
 
 After a runtime subprocess exits, helo returns to the menu.
 
-**Extra args in interactive run:** supports double-quoted strings, e.g. `-p "my prompt"`.
+**Interactive run prompts:** project dir, resume?, prompt (blank=interactive), extra args. Supports double-quoted strings.
+
+## First-time setup (helo init)
+
+Guided 3-step wizard for new users:
+
+1. **Install runtimes** — detects installed runtimes (claude/pi/opencode), offers to install missing ones via npm/go
+2. **API keys** — prompt for provider keys (anthropic, zai, openrouter, openai), stored in config
+3. **Create first blueprint** — name, runtime, provider, model. Auto-fills API key from global keys.
+
+```
+helo init     # run the setup wizard
+```
+
+Interactive mode auto-detects first run (no blueprints) and suggests `helo init`.
 
 ## Build & install
 
@@ -202,12 +272,25 @@ cargo install --path .   # replaces ~/.cargo/bin/helo.exe — helo must not be r
 
 ## GUI (Electron terminal + blueprint panel)
 
-`gui/` is an Electron terminal (xterm.js + node-pty, based on `sidebar-terminal` v2) merged with a helo-aware blueprint panel.
+`gui/` is an Electron terminal (xterm.js + node-pty) with a helo-aware blueprint panel. Uses the **Kinetic Console** design system — dark obsidian backgrounds, orange (#ff8c00) primary, zero border-radius, CRT scanline texture.
+
+**UI stack:**
+- Tailwind CSS v4 (`@tailwindcss/vite` plugin, no config file — all in `styles.css`)
+- shadcn/ui (base-nova style) — component primitives in `gui/src/components/ui/`
+- Framer Motion — modal animations, sidebar collapse, context menu springs, hover/tap micro-interactions
+- All components use Tailwind utilities exclusively (no vanilla CSS classes)
+
+**Design tokens** — defined in `gui/src/renderer/styles.css` `@theme` block:
+- Surface tonal stack: `--color-surface` (#0e0c14) through `--color-surface-bright` (#3d374a)
+- Primary: `--color-primary` (#ff8c00) with dim/glow/faint variants
+- Fonts: Space Grotesk (headlines), Inter (body), JetBrains Mono (monospace/code)
+- `--radius: 0px` globally (zero border-radius throughout)
 
 **Architecture:**
 - `gui/src/main/helo-bridge.ts` shells out to `helo` CLI via `execFile`. IPC handlers: `helo:list`, `helo:add`, `helo:remove`, `helo:status`, `helo:defaults-show`.
 - `gui/src/renderer/components/BlueprintPanel.tsx` — modal UI for list/add/remove/launch blueprints.
 - **Launch flow:** user picks blueprint + project dir → App.tsx creates new PTY session → pending init command stashed in `pendingInitCommands` ref → global `pty:ready` listener writes `cd <dir> && helo run <name>\n` when the PTY is ready.
+- `gui/src/shared/settings.ts` — theme definitions + settings types. Default theme: `kinetic`.
 
 **JSON CLI support (added for GUI consumption):**
 - `helo list --json` — array of blueprints
@@ -227,23 +310,35 @@ npm run build    # tsc main + vite renderer → dist/
 npm run app      # run packaged dist/ (NODE_ENV=production)
 ```
 
+**Components:**
+- `TitleBar.tsx` — drag region, HELO branding with glow dot, settings gear (SVG), window controls
+- `Sidebar.tsx` — vertical/horizontal modes, position prop (left/right/top/bottom), collapsible with Framer Motion `AnimatePresence`, resize handle, context menus for rename/close, active group indicator with `layoutId` animation
+- `ContextMenu.tsx` — glassmorphism backdrop, spring scale animation, hover slide effect
+- `SettingsPanel.tsx` — modal overlay with `AnimatePresence`, theme grid with color swatches, font/cursor/terminal/sidebar sections
+- `BlueprintPanel.tsx` — modal overlay, staggered list animation, launch dialog with browse, add form with animated expand/collapse
+- `TerminalView.tsx` — xterm.js wrapper, animated search bar (AnimatePresence), exit/error overlays with spring animations, context menu
+
 **Shell picker:**
 - Left-click `+` in titlebar → new terminal with default shell
 - Right-click `+` → context menu: pick shell or set default
 - Default shell persisted in settings.json (Electron userData)
 
 **Pane layout (up to 4 simultaneously):**
-- Each session is a standalone sidebar tab — no parent/child hierarchy
-- Clicking a session in sidebar replaces the currently active pane slot (adds to free slot if < 4)
-- 1 pane=full, 2=side by side, 3=left tall+right split, 4=2×2 grid
-- Panes are resizable: drag the divider between panes (col divider at ≥2 panes, row at ≥3)
-- Each pane bar has session name + × to remove from grid (session stays in sidebar)
+- Sessions organized into groups (max 4 per group)
+- Grid: 1=full, 2=vertical stack, 3=top + bottom-split, 4=2×2
+- All terminals always mounted — hidden ones use `position: absolute; opacity: 0; pointer-events: none`
+- Panes resizable via drag handles with hover-reveal indicator lines
 
-**Session auto-grouping:**
-- When 5th terminal is opened, the first 4 auto-group into "Group 1" (collapsed) in the sidebar
-- Pattern repeats: 9th terminal groups 5–8 into "Group 2", etc.
-- Click group header to expand/collapse; right-click to rename or delete
-- Double-click group header to show all group sessions in panes (up to 4)
-- Right-click any session to manually move it to a group
+**Session grouping:**
+- Groups created automatically (max 4 sessions per group)
+- Click group in sidebar to activate — shows its sessions in the pane grid
+- Right-click group/session for rename/close context menu
+- Double-click session name to inline rename
+
+**Sidebar:**
+- Configurable position: left/right/top/bottom (in Settings)
+- Resizable (drag edge handle), collapsible
+- Vertical mode: brand header, group list with active glow indicator, session sub-items with dot indicators, NEW SESSION button
+- Horizontal mode: compact tab bar with group tabs and session chips
 
 `helo` must be on PATH for the bridge to work.

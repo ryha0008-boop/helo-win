@@ -2,7 +2,60 @@ import type { ITheme } from '@xterm/xterm';
 
 // ===== Theme Definitions =====
 
-export const themes: Record<string, { terminal: ITheme; ui: { bg: string; sidebar: string; border: string; accent: string; text: string; textMuted: string; textDim: string } }> = {
+export interface ThemeUI {
+  bg: string;
+  sidebar: string;
+  border: string;
+  accent: string;
+  text: string;
+  textMuted: string;
+  textDim: string;
+  surface?: string;
+  surfaceHigh?: string;
+  surfaceHighest?: string;
+  outline?: string;
+}
+
+export const themes: Record<string, { terminal: ITheme; ui: ThemeUI }> = {
+  kinetic: {
+    terminal: {
+      background: '#0f0d16',
+      foreground: '#e6e0ee',
+      cursor: '#ffb77d',
+      cursorAccent: '#0f0d16',
+      selectionBackground: '#2b2933',
+      selectionForeground: '#e6e0ee',
+      black: '#14121b',
+      red: '#ff5370',
+      green: '#a6e3a1',
+      yellow: '#f9e2af',
+      blue: '#85cfff',
+      magenta: '#f5c2e7',
+      cyan: '#94e2d5',
+      white: '#e6e0ee',
+      brightBlack: '#3b3842',
+      brightRed: '#ff8a80',
+      brightGreen: '#69f0ae',
+      brightYellow: '#ffd180',
+      brightBlue: '#85cfff',
+      brightMagenta: '#f5c2e7',
+      brightCyan: '#84ffff',
+      brightWhite: '#ffffff',
+    },
+    ui: {
+      bg: '#0f0d16',
+      sidebar: '#1c1a24',
+      border: '#211e28',
+      accent: '#ff8c00',
+      text: '#e6e0ee',
+      textMuted: '#ddc1ae',
+      textDim: '#3b3842',
+      surface: '#211e28',
+      surfaceHigh: '#2b2933',
+      surfaceHighest: '#36333e',
+      outline: '#564334',
+    },
+  },
   neon: {
     terminal: {
       background: '#0b0e1a',
@@ -164,10 +217,11 @@ export interface Settings {
   opacity: number;
   shellProfiles: ShellProfile[];
   defaultShell: string;
+  sidebarPosition: 'left' | 'right' | 'top' | 'bottom';
 }
 
 export const defaultSettings: Settings = {
-  theme: 'neon',
+  theme: 'kinetic',
   fontSize: 13,
   fontFamily: 'JetBrains Mono, Consolas, monospace',
   lineHeight: 1.15,
@@ -181,4 +235,5 @@ export const defaultSettings: Settings = {
     { name: 'PowerShell', path: 'C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe', args: [] },
   ],
   defaultShell: 'Git Bash',
+  sidebarPosition: 'right',
 };

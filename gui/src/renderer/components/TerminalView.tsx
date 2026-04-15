@@ -8,6 +8,7 @@ import { LigaturesAddon } from '@xterm/addon-ligatures';
 import { tabletTheme } from '../theme';
 import ContextMenu, { ContextMenuItem } from './ContextMenu';
 import { Settings, themes } from '../../shared/settings';
+import { motion, AnimatePresence } from 'framer-motion';
 import '@xterm/xterm/css/xterm.css';
 
 export interface SessionMeta {
@@ -135,7 +136,7 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
     if (!containerRef.current || initialized.current) return;
     initialized.current = true;
 
-    const activeTheme = themes[settings?.theme || 'neon']?.terminal || themes.neon.terminal;
+    const activeTheme = themes[settings?.theme || 'kinetic']?.terminal || themes.kinetic.terminal;
     const term = new Terminal({
       theme: activeTheme,
       fontFamily: settings?.fontFamily || 'JetBrains Mono, Consolas, monospace',
@@ -153,34 +154,19 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
 
     term.open(containerRef.current);
 
-    // Try WebGL, fall back silently
+    try { term.loadAddon(new WebglAddon()); } catch {}
     try {
-      term.loadAddon(new WebglAddon());
-    } catch {
-      // Canvas fallback
-    }
-
-    // Clickable hyperlinks in terminal output
-    term.loadAddon(new WebLinksAddon((_event, uri) => {
-      window.terminal.openExternal(uri);
-    }));
-
-    // Ligature support (font must support ligatures, e.g. Fira Code, JetBrains Mono)
-    try {
-      term.loadAddon(new LigaturesAddon());
-    } catch {
-      // Ligatures not supported in this environment
-    }
+      term.loadAddon(new WebLinksAddon((_event, uri) => {
+        window.terminal.openExternal(uri);
+      }));
+    } catch {}
+    try { term.loadAddon(new LigaturesAddon()); } catch {}
 
     fitAddon.fit();
 
-    // Session metadata tracking via buffer scanning
-    // Instead of parsing the raw data stream (unreliable with ANSI codes + chunked data),
-    // we scan the rendered terminal buffer after output settles.
     const metaRef = { cwd: '', lastCommand: '', isRunning: false };
     let scanTimer: number | null = null;
 
-    // OSC 7 — CWD reporting (if shell supports it)
     term.parser.registerOscHandler(7, (data) => {
       try {
         const url = new URL(data);
@@ -199,32 +185,22 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
       const buf = term.buffer.active;
       const cursorRow = buf.baseY + buf.cursorY;
 
-      // Scan backwards from cursor to find CWD from MINGW prompt
       for (let r = cursorRow; r >= Math.max(0, cursorRow - 10); r--) {
         const line = buf.getLine(r)?.translateToString().trim() || '';
-        // Git Bash: "user@host MINGW64 ~/path" or "user@host MINGW64 ~/path (branch)"
         const mingwMatch = line.match(/MINGW\d*\s+(~[^\s(]*|\/[^\s(]*)/);
         if (mingwMatch) {
           const cwd = mingwMatch[1];
-          if (cwd !== metaRef.cwd) {
-            metaRef.cwd = cwd;
-            onSessionMeta?.(sessionId, { cwd });
-          }
+          if (cwd !== metaRef.cwd) { metaRef.cwd = cwd; onSessionMeta?.(sessionId, { cwd }); }
           break;
         }
-        // PowerShell: "PS C:\Users\path>"
         const psMatch = line.match(/^PS\s+([A-Z]:\\[^>]*)/i);
         if (psMatch) {
           const cwd = psMatch[1].replace(/\\/g, '/');
-          if (cwd !== metaRef.cwd) {
-            metaRef.cwd = cwd;
-            onSessionMeta?.(sessionId, { cwd });
-          }
+          if (cwd !== metaRef.cwd) { metaRef.cwd = cwd; onSessionMeta?.(sessionId, { cwd }); }
           break;
         }
       }
 
-      // Find last command: scan for "$ command" lines
       for (let r = cursorRow; r >= Math.max(0, cursorRow - 50); r--) {
         const line = buf.getLine(r)?.translateToString().trim() || '';
         const cmdMatch = line.match(/^\$\s+(.+)/);
@@ -236,7 +212,6 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
           }
           break;
         }
-        // PowerShell prompt
         const psCmd = line.match(/^PS\s+[^>]*>\s+(.+)/);
         if (psCmd) {
           const cmd = psCmd[1].trim();
@@ -248,30 +223,24 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
         }
       }
 
-      // Detect if at prompt (not running a command)
-      // The cursor line or the line just above should end with $ or >
       const cursorLine = buf.getLine(cursorRow)?.translateToString().trim() || '';
       const prevLine = cursorRow > 0 ? (buf.getLine(cursorRow - 1)?.translateToString().trim() || '') : '';
       const atPrompt = /\$\s*$/.test(cursorLine) || />\s*$/.test(cursorLine)
         || (cursorLine === '' && (/\$\s*$/.test(prevLine) || />\s*$/.test(prevLine)));
-
       if (atPrompt && metaRef.isRunning) {
         metaRef.isRunning = false;
         onSessionMeta?.(sessionId, { isRunning: false });
       }
     };
 
-    // Debounced scan: run 200ms after last PTY output
     const scheduleScan = () => {
       if (scanTimer) clearTimeout(scanTimer);
       scanTimer = window.setTimeout(scanBuffer, 200);
     };
 
-    // Detect Enter key in terminal input → mark as running
     term.onData((data) => {
       window.terminal.writePty(sessionId, data);
       if (data === '\r') {
-        // User pressed Enter — read current line for the command
         const buf = term.buffer.active;
         const row = buf.baseY + buf.cursorY;
         const lineText = buf.getLine(row)?.translateToString().trim() || '';
@@ -286,143 +255,68 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
         }
       }
     });
-    // Create or attach to PTY
+
     if (fromDaemon) {
-      // Reattach to existing daemon session — will replay buffered output
       window.terminal.attachSession(sessionId);
     } else {
       window.terminal.createPty(sessionId, term.cols, term.rows, shell);
     }
 
-    // Selection state for keyboard-driven selection
     let sel: SelectionState | null = null;
 
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
-
       const buf = term.buffer.active;
       const cols = term.cols;
 
-      // Ctrl+Shift+F — toggle search
-      if (e.ctrlKey && e.shiftKey && e.key === 'F') {
-        setSearching((s) => !s);
-        return false;
-      }
+      if (e.ctrlKey && e.shiftKey && e.key === 'F') { setSearching((s) => !s); return false; }
+      if (e.key === 'Escape' && searching) { setSearching(false); searchAddon.clearDecorations(); return false; }
 
-      // Escape — close search if open
-      if (e.key === 'Escape' && searching) {
-        setSearching(false);
-        searchAddon.clearDecorations();
-        return false;
-      }
-
-
-      // --- Keyboard selection ---
       if (e.shiftKey && !e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-        if (!sel) {
-          const curCol = buf.cursorX;
-          const curRow = buf.baseY + buf.cursorY;
-          sel = { anchor: { col: curCol, row: curRow }, end: { col: curCol, row: curRow } };
+        if (!sel) { const c = buf.cursorX; const r = buf.baseY + buf.cursorY; sel = { anchor: { col: c, row: r }, end: { col: c, row: r } }; }
+        if (e.ctrlKey) { sel.end = findWordBoundary(term, sel.end.col, sel.end.row, e.key === 'ArrowRight' ? 1 : -1); }
+        else {
+          if (e.key === 'ArrowRight') { sel.end.col++; if (sel.end.col >= cols) { sel.end.col = 0; sel.end.row++; } }
+          else { sel.end.col--; if (sel.end.col < 0) { sel.end.col = cols - 1; sel.end.row = Math.max(0, sel.end.row - 1); } }
         }
-        if (e.ctrlKey) {
-          sel.end = findWordBoundary(term, sel.end.col, sel.end.row, e.key === 'ArrowRight' ? 1 : -1);
-        } else {
-          if (e.key === 'ArrowRight') {
-            sel.end.col++;
-            if (sel.end.col >= cols) { sel.end.col = 0; sel.end.row++; }
-          } else {
-            sel.end.col--;
-            if (sel.end.col < 0) { sel.end.col = cols - 1; sel.end.row = Math.max(0, sel.end.row - 1); }
-          }
-        }
-        applySelection(term, sel);
-        return false;
+        applySelection(term, sel); return false;
       }
-
       if (e.shiftKey && e.key === 'Home') {
-        if (!sel) {
-          const curCol = buf.cursorX; const curRow = buf.baseY + buf.cursorY;
-          sel = { anchor: { col: curCol, row: curRow }, end: { col: curCol, row: curRow } };
-        }
-        sel.end.col = 0;
-        applySelection(term, sel);
-        return false;
+        if (!sel) { const c = buf.cursorX; const r = buf.baseY + buf.cursorY; sel = { anchor: { col: c, row: r }, end: { col: c, row: r } }; }
+        sel.end.col = 0; applySelection(term, sel); return false;
       }
-
       if (e.shiftKey && e.key === 'End') {
-        if (!sel) {
-          const curCol = buf.cursorX; const curRow = buf.baseY + buf.cursorY;
-          sel = { anchor: { col: curCol, row: curRow }, end: { col: curCol, row: curRow } };
-        }
-        sel.end.col = getLineText(term, sel.end.row).trimEnd().length;
-        applySelection(term, sel);
-        return false;
+        if (!sel) { const c = buf.cursorX; const r = buf.baseY + buf.cursorY; sel = { anchor: { col: c, row: r }, end: { col: c, row: r } }; }
+        sel.end.col = getLineText(term, sel.end.row).trimEnd().length; applySelection(term, sel); return false;
       }
-
-      // --- Clipboard ---
-      if (e.ctrlKey && e.shiftKey && e.key === 'C') {
-        const text = term.getSelection();
-        if (text) navigator.clipboard.writeText(text);
-        return false;
-      }
-
-      if (e.ctrlKey && !e.shiftKey && e.key === 'c' && term.hasSelection()) {
-        navigator.clipboard.writeText(term.getSelection());
-        term.clearSelection();
-        sel = null;
-        return false;
-      }
-
-      if (e.ctrlKey && e.shiftKey && e.key === 'V') {
-        navigator.clipboard.readText().then((text) => window.terminal.writePty(sessionId, text));
-        return false;
-      }
-
-      if (e.ctrlKey && !e.shiftKey && e.key === 'v') {
-        e.preventDefault();
-        navigator.clipboard.readText().then((text) => window.terminal.writePty(sessionId, text));
-        return false;
-      }
-
-      // Clear selection on non-modifier keypress
-      if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        if (sel) { sel = null; term.clearSelection(); }
-      }
-
+      if (e.ctrlKey && e.shiftKey && e.key === 'C') { const t = term.getSelection(); if (t) navigator.clipboard.writeText(t); return false; }
+      if (e.ctrlKey && !e.shiftKey && e.key === 'c' && term.hasSelection()) { navigator.clipboard.writeText(term.getSelection()); term.clearSelection(); sel = null; return false; }
+      if (e.ctrlKey && e.shiftKey && e.key === 'V') { navigator.clipboard.readText().then((t) => window.terminal.writePty(sessionId, t)); return false; }
+      if (e.ctrlKey && !e.shiftKey && e.key === 'v') { e.preventDefault(); navigator.clipboard.readText().then((t) => window.terminal.writePty(sessionId, t)); return false; }
+      if (!e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey) { if (sel) { sel = null; term.clearSelection(); } }
       return true;
     });
 
-    // PTY output → Terminal + schedule metadata scan
     const dataListener = (_event: any, { id, data }: { id: string; data: string }) => {
-      if (id === sessionId) {
-        term.write(data);
-        scheduleScan();
-      }
+      if (id === sessionId) { term.write(data); scheduleScan(); }
     };
     window.terminal.addDataListener(dataListener);
 
-    // PTY exit → show overlay + report to parent
     const exitListener = (_event: any, { id, exitCode: code }: { id: string; exitCode: number }) => {
-      if (id === sessionId) {
-        setExitCode(code);
-        onSessionMeta?.(sessionId, { exitCode: code, isRunning: false });
-      }
+      if (id === sessionId) { setExitCode(code); onSessionMeta?.(sessionId, { exitCode: code, isRunning: false }); }
     };
     window.terminal.addExitListener(exitListener);
 
-    // PTY error → show error
     const errorListener = (_event: any, { id, message }: { id: string; message: string }) => {
       if (id === sessionId) setError(message);
     };
     window.terminal.addErrorListener(errorListener);
 
-    // PTY ready → report shell info
     const readyListener = (_event: any, { id, shell, pid }: { id: string; shell: string; pid: number }) => {
       if (id === sessionId && onSessionInfo) onSessionInfo(id, { shell, pid });
     };
     window.terminal.addReadyListener(readyListener);
 
-    // Handle resize — use clientWidth/Height; offsetParent is unreliable mid-transition.
     const resizeObserver = new ResizeObserver(() => {
       const el = containerRef.current;
       if (el && el.clientWidth > 0 && el.clientHeight > 0) {
@@ -433,11 +327,7 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
     });
     resizeObserver.observe(containerRef.current);
 
-    // Right-click context menu
-    const contextHandler = (e: MouseEvent) => {
-      e.preventDefault();
-      setContextMenu({ x: e.clientX, y: e.clientY });
-    };
+    const contextHandler = (e: MouseEvent) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY }); };
     containerRef.current.addEventListener('contextmenu', contextHandler);
 
     terminals.set(sessionId, { term, fitAddon, searchAddon });
@@ -455,8 +345,6 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
     };
   }, [sessionId]);
 
-  // Re-fit, refresh, and focus when becoming active.
-  // Two-stage: immediate RAF (CSS already committed) + 150ms fallback (WebGL catch-up).
   useEffect(() => {
     if (isActive) {
       const entry = terminals.get(sessionId);
@@ -468,60 +356,36 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
         });
         setTimeout(() => {
           const e = terminals.get(sessionId);
-          if (e) {
-            e.fitAddon.fit();
-            e.term.refresh(0, e.term.rows - 1);
-          }
+          if (e) { e.fitAddon.fit(); e.term.refresh(0, e.term.rows - 1); }
         }, 150);
       }
     }
   }, [isActive, sessionId]);
 
-  // Switch theme when tablet mode or settings theme changes
   useEffect(() => {
     const entry = terminals.get(sessionId);
     if (entry) {
-      const activeTheme = themes[settings?.theme || 'neon']?.terminal || themes.neon.terminal;
+      const activeTheme = themes[settings?.theme || 'kinetic']?.terminal || themes.kinetic.terminal;
       entry.term.options.theme = tabletMode ? tabletTheme : activeTheme;
     }
   }, [tabletMode, sessionId, settings?.theme]);
 
-  // Focus search input when search opens
   useEffect(() => {
-    if (searching) {
-      requestAnimationFrame(() => searchInputRef.current?.focus());
-    }
+    if (searching) requestAnimationFrame(() => searchInputRef.current?.focus());
   }, [searching]);
 
-  // Tablet mode search trigger
   useEffect(() => {
-    const searchHandler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.id === sessionId) setSearching(true);
-    };
+    const searchHandler = (e: Event) => { const d = (e as CustomEvent).detail; if (d?.id === sessionId) setSearching(true); };
     window.addEventListener('tablet-search', searchHandler);
-
-    // Tablet mode arrow keys with select
     const arrowHandler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail?.id !== sessionId) return;
+      const d = (e as CustomEvent).detail;
+      if (d?.id !== sessionId) return;
       const entry = terminals.get(sessionId);
       if (!entry) return;
-
-      // Simulate shift+arrow for selection
-      const synth = new KeyboardEvent('keydown', {
-        key: detail.key,
-        shiftKey: true,
-        bubbles: true,
-      });
-      entry.term.textarea?.dispatchEvent(synth);
+      entry.term.textarea?.dispatchEvent(new KeyboardEvent('keydown', { key: d.key, shiftKey: true, bubbles: true }));
     };
     window.addEventListener('tablet-arrow', arrowHandler);
-
-    return () => {
-      window.removeEventListener('tablet-search', searchHandler);
-      window.removeEventListener('tablet-arrow', arrowHandler);
-    };
+    return () => { window.removeEventListener('tablet-search', searchHandler); window.removeEventListener('tablet-arrow', arrowHandler); };
   }, [sessionId]);
 
   const runSearch = (query: string, lineOnly: boolean) => {
@@ -534,11 +398,8 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
         const lineRow = buf.baseY + buf.cursorY;
         const lineText = getLineText(entry.term, lineRow);
         const idx = lineText.indexOf(query);
-        if (idx >= 0) {
-          entry.term.select(idx, lineRow, query.length);
-        } else {
-          entry.term.clearSelection();
-        }
+        if (idx >= 0) entry.term.select(idx, lineRow, query.length);
+        else entry.term.clearSelection();
       } else {
         entry.term.clearSelection();
         entry.searchAddon.findNext(query);
@@ -549,33 +410,19 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
     }
   };
 
-  const handleSearch = (query: string) => {
-    setSearchQuery(query);
-    runSearch(query, searchCurrentLine);
-  };
-
-  const handleToggleScope = () => {
-    const newScope = !searchCurrentLine;
-    setSearchCurrentLine(newScope);
-    runSearch(searchQuery, newScope);
-  };
+  const handleSearch = (query: string) => { setSearchQuery(query); runSearch(query, searchCurrentLine); };
+  const handleToggleScope = () => { const s = !searchCurrentLine; setSearchCurrentLine(s); runSearch(searchQuery, s); };
 
   const closeSearch = () => {
     setSearching(false);
     const entry = terminals.get(sessionId);
-    if (entry) {
-      entry.searchAddon.clearDecorations();
-      entry.term.clearSelection();
-      entry.term.focus();
-    }
+    if (entry) { entry.searchAddon.clearDecorations(); entry.term.clearSelection(); entry.term.focus(); }
   };
 
   const handleGoToMatch = () => {
     const entry = terminals.get(sessionId);
     if (!entry || !searchQuery) return;
-
     if (searchCurrentLine) {
-      // Move the shell cursor to the currently selected match position
       const buf = entry.term.buffer.active;
       const cursorX = buf.cursorX;
       const sel = entry.term.getSelectionPosition();
@@ -583,19 +430,12 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
         const targetCol = sel.start.x;
         const delta = targetCol - cursorX;
         const arrow = delta > 0 ? '\x1b[C' : '\x1b[D';
-        const count = Math.abs(delta);
-        for (let i = 0; i < count; i++) {
-          window.terminal.writePty(sessionId, arrow);
-        }
+        for (let i = 0; i < Math.abs(delta); i++) window.terminal.writePty(sessionId, arrow);
       }
     } else {
-      // All mode — scroll to the match (can't move shell cursor into scrollback)
       const sel = entry.term.getSelectionPosition();
-      if (sel) {
-        entry.term.scrollToLine(sel.start.y);
-      }
+      if (sel) entry.term.scrollToLine(sel.start.y);
     }
-
     setSearching(false);
     entry.searchAddon.clearDecorations();
     entry.term.clearSelection();
@@ -607,101 +447,123 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
     setError(null);
     onSessionMeta?.(sessionId, { exitCode: null, isRunning: false, lastCommand: '' });
     const entry = terminals.get(sessionId);
-    if (entry) {
-      entry.term.clear();
-      window.terminal.createPty(sessionId, entry.term.cols, entry.term.rows);
-    }
+    if (entry) { entry.term.clear(); window.terminal.createPty(sessionId, entry.term.cols, entry.term.rows); }
   };
 
   return (
-    <div className="terminal-view-container">
-      <div ref={containerRef} className="terminal-view" />
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className="h-full w-full" />
 
       {/* Search bar */}
-      {searching && (
-        <div className="terminal-search-bar">
-          <input
-            ref={searchInputRef}
-            className="terminal-search-input"
-            value={searchQuery}
-            onChange={(e) => handleSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === 'F3') {
-                e.preventDefault();
-                const entry = terminals.get(sessionId);
-                if (entry) {
-                  if (e.shiftKey) entry.searchAddon.findPrevious(searchQuery);
-                  else entry.searchAddon.findNext(searchQuery);
-                }
-              }
-              if (e.key === 'Escape') {
-                closeSearch();
-              }
-            }}
-            placeholder="Search..."
-          />
-          <button
-            className="terminal-search-scope"
-            onClick={handleToggleScope}
-            title={searchCurrentLine ? 'Searching current line only' : 'Searching all output'}
+      <AnimatePresence>
+        {searching && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.15 }}
+            className="absolute top-2 left-2 right-2 z-20 flex items-center gap-1 bg-surface-low/95 backdrop-blur-md border border-white/[0.06] shadow-lg px-1"
           >
-            {searchCurrentLine ? 'Line' : 'All'}
-          </button>
-          <button
-            className="terminal-search-nav"
-            onClick={() => {
-              const entry = terminals.get(sessionId);
-              if (entry) entry.searchAddon.findPrevious(searchQuery);
-            }}
-            title="Previous (Shift+Enter)"
-          >&#9650;</button>
-          <button
-            className="terminal-search-nav"
-            onClick={() => {
-              const entry = terminals.get(sessionId);
-              if (entry) entry.searchAddon.findNext(searchQuery);
-            }}
-            title="Next (Enter)"
-          >&#9660;</button>
-          <button
-            className="terminal-search-nav"
-            onClick={handleGoToMatch}
-            title="Go to match — place cursor at end of found text"
-          >&#8629;</button>
-          <button
-            className="terminal-search-close"
-            onClick={closeSearch}
-          >&times;</button>
-        </div>
-      )}
+            <input
+              ref={searchInputRef}
+              className="flex-1 bg-transparent text-on-surface text-xs font-[var(--font-mono)] px-2 py-1.5 outline-none placeholder:text-muted-foreground/50"
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === 'F3') {
+                  e.preventDefault();
+                  const entry = terminals.get(sessionId);
+                  if (entry) { if (e.shiftKey) entry.searchAddon.findPrevious(searchQuery); else entry.searchAddon.findNext(searchQuery); }
+                }
+                if (e.key === 'Escape') closeSearch();
+              }}
+              placeholder="Search..."
+            />
+            <button
+              className={`px-1.5 py-0.5 text-[0.6rem] font-[var(--font-mono)] tracking-wider transition-colors cursor-pointer ${searchCurrentLine ? 'text-primary bg-primary-dim' : 'text-muted-foreground hover:text-on-surface'}`}
+              onClick={handleToggleScope}
+              title={searchCurrentLine ? 'Searching current line only' : 'Searching all output'}
+            >
+              {searchCurrentLine ? 'LINE' : 'ALL'}
+            </button>
+            <button className="px-1.5 py-0.5 text-muted-foreground hover:text-on-surface text-[0.6rem] transition-colors cursor-pointer"
+              onClick={() => { const e = terminals.get(sessionId); if (e) e.searchAddon.findPrevious(searchQuery); }} title="Previous">&#9650;</button>
+            <button className="px-1.5 py-0.5 text-muted-foreground hover:text-on-surface text-[0.6rem] transition-colors cursor-pointer"
+              onClick={() => { const e = terminals.get(sessionId); if (e) e.searchAddon.findNext(searchQuery); }} title="Next">&#9660;</button>
+            <button className="px-1.5 py-0.5 text-muted-foreground hover:text-on-surface text-[0.6rem] transition-colors cursor-pointer"
+              onClick={handleGoToMatch} title="Go to match">&#8629;</button>
+            <button className="px-1.5 py-0.5 text-muted-foreground hover:text-on-surface transition-colors cursor-pointer"
+              onClick={closeSearch}>&times;</button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Exit overlay */}
-      {exitCode !== null && (
-        <div className="terminal-overlay">
-          <div className="terminal-overlay-content">
-            <span className="terminal-overlay-text">
-              Process exited with code {exitCode}
-            </span>
-            <button className="terminal-overlay-btn" onClick={handleRestart}>
-              Restart
-            </button>
-          </div>
-        </div>
-      )}
+      <AnimatePresence>
+        {exitCode !== null && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-10 flex items-center justify-center bg-surface/80 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="text-center space-y-3"
+            >
+              <div className="text-xs font-[var(--font-mono)] text-muted-foreground tracking-wider">
+                PROCESS EXITED
+              </div>
+              <div className="text-2xl font-[var(--font-headline)] font-bold text-on-surface">
+                {exitCode}
+              </div>
+              <div className="text-[0.6rem] font-[var(--font-mono)] text-muted-foreground tracking-wider">
+                exit code
+              </div>
+              <button
+                className="mt-2 px-4 py-1.5 text-[0.65rem] font-[var(--font-mono)] tracking-widest font-bold text-primary bg-primary-dim hover:bg-primary-glow transition-colors cursor-pointer"
+                onClick={handleRestart}
+              >
+                RESTART
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Error overlay */}
-      {error && (
-        <div className="terminal-overlay terminal-overlay-error">
-          <div className="terminal-overlay-content">
-            <span className="terminal-overlay-text">
-              Failed to start: {error}
-            </span>
-            <button className="terminal-overlay-btn" onClick={handleRestart}>
-              Retry
-            </button>
-          </div>
-        </div>
-      )}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-10 flex items-center justify-center bg-surface/80 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="text-center space-y-3"
+            >
+              <div className="text-xs font-[var(--font-mono)] text-danger tracking-wider">
+                ERROR
+              </div>
+              <div className="text-xs font-[var(--font-mono)] text-on-surface max-w-[300px]">
+                {error}
+              </div>
+              <button
+                className="mt-2 px-4 py-1.5 text-[0.65rem] font-[var(--font-mono)] tracking-widest font-bold text-primary bg-primary-dim hover:bg-primary-glow transition-colors cursor-pointer"
+                onClick={handleRestart}
+              >
+                RETRY
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Context menu */}
       {contextMenu && (
@@ -713,32 +575,11 @@ function TerminalView({ sessionId, isActive, shell, fontSize = 13, fromDaemon, t
             const entry = terminals.get(sessionId);
             const hasSelection = entry?.term.hasSelection() ?? false;
             return [
-              {
-                label: 'Copy',
-                disabled: !hasSelection,
-                action: () => {
-                  if (entry?.term.hasSelection()) {
-                    navigator.clipboard.writeText(entry.term.getSelection());
-                  }
-                },
-              },
-              {
-                label: 'Paste',
-                action: () => {
-                  navigator.clipboard.readText().then((text) => {
-                    window.terminal.writePty(sessionId, text);
-                  });
-                },
-              },
+              { label: 'COPY', disabled: !hasSelection, action: () => { if (entry?.term.hasSelection()) navigator.clipboard.writeText(entry.term.getSelection()); } },
+              { label: 'PASTE', action: () => { navigator.clipboard.readText().then((text) => { window.terminal.writePty(sessionId, text); }); } },
               { label: '', action: () => {}, separator: true },
-              {
-                label: 'Clear',
-                action: () => { entry?.term.clear(); },
-              },
-              {
-                label: 'Search',
-                action: () => { setSearching(true); },
-              },
+              { label: 'CLEAR', action: () => { entry?.term.clear(); } },
+              { label: 'SEARCH', action: () => { setSearching(true); } },
             ] as ContextMenuItem[];
           })()}
         />

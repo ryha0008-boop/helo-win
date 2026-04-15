@@ -135,9 +135,9 @@ On `helo run`:
 - `save_instance()` writes the same vars into `settings.json` `"env"` block via `build_zai_settings()` — this is the primary mechanism Claude Code uses
 - ZAI blueprints always use the built-in settings template, ignoring user defaults (`helo defaults set claude`)
 
-Blueprint `zai-agent` exists with model `glm-5.1`.
+Blueprint `zai-agent` exists with model `glm-5.1`. Stored global key: `helo keys set zai <key>`.
 
-**Key type:** z.ai subscription/plan keys work the same as API keys here — just pass as `--api-key`. The env var name `ZAI_API_KEY` is the fallback if no key is stored in the blueprint.
+**Key type:** z.ai subscription/plan keys work the same as API keys here — just pass as `--api-key` or set globally with `helo keys set zai <key>`. The env var `ZAI_API_KEY` is the fallback if no key is stored.
 
 ## Updating a blueprint's API key
 
@@ -147,7 +147,7 @@ helo key <name> <key>   # store or replace the api_key in an existing blueprint
 
 Interactive mode: press `k`, pick blueprint by number, enter new key.
 
-**Priority:** stored blueprint key takes precedence over the corresponding env var (`ZAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.) for all runtimes.
+**Priority:** blueprint key > global key (`helo keys`) > env var (`ZAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.) for all runtimes.
 
 ## Built-in CLAUDE.md templates
 
@@ -193,8 +193,8 @@ After a runtime subprocess exits, helo returns to the menu.
 ## Build & install
 
 ```
-cargo build --release    # requires helo.exe not in use
-cargo install --path .   # installs to ~/.cargo/bin, safe while running
+cargo build --release    # writes to target/ — safe while helo is running
+cargo install --path .   # replaces ~/.cargo/bin/helo.exe — helo must not be running
 ```
 
 ## GUI (Electron terminal + blueprint panel)

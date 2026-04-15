@@ -65,3 +65,20 @@ pub fn save(config: &Config) -> Result<()> {
     std::fs::write(&path, toml::to_string_pretty(config)?)
         .with_context(|| format!("could not write {}", path.display()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_claude_md_file_path_passes_through() {
+        let result = resolve_claude_md("/some/path/to/file.md");
+        assert_eq!(result.unwrap(), std::path::PathBuf::from("/some/path/to/file.md"));
+    }
+
+    #[test]
+    fn resolve_claude_md_dot_extension_treated_as_path() {
+        let result = resolve_claude_md("my.template");
+        assert_eq!(result.unwrap(), std::path::PathBuf::from("my.template"));
+    }
+}

@@ -1,6 +1,100 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_with_keys_roundtrip() {
+        let mut cfg = Config::default();
+        cfg.blueprints.push(Blueprint {
+            name: "test-bp".into(),
+            runtime: "claude".into(),
+            provider: "anthropic".into(),
+            model: "sonnet".into(),
+            api_key: Some("sk-secret".into()),
+            claude_md: Some("/path/to/md".into()),
+        });
+        cfg.keys.insert("zai".into(), "zai-key".into());
+        cfg.keys.insert("openrouter".into(), "or-key".into());
+
+        let toml = toml::to_string_pretty(&cfg).unwrap();
+        let loaded: Config = toml::from_str(&toml).unwrap();
+
+        assert_eq!(loaded.blueprints.len(), 1);
+        assert_eq!(loaded.blueprints[0].name, "test-bp");
+        assert_eq!(loaded.keys.len(), 2);
+        assert_eq!(loaded.keys.get("zai").unwrap(), "zai-key");
+    }
+
+    #[test]
+    fn blueprint_omits_none_fields() {
+        let bp = Blueprint {
+            name: "minimal".into(),
+            runtime: "claude".into(),
+            provider: "anthropic".into(),
+            model: "sonnet".into(),
+            api_key: None,
+            claude_md: None,
+        };
+        let toml = toml::to_string_pretty(&bp).unwrap();
+        assert!(!toml.contains("api_key"));
+        assert!(!toml.contains("claude_md"));
+    }
+
+    #[test]
+    fn blueprint_includes_some_fields() {
+        let bp = Blueprint {
+            name: "full".into(),
+            runtime: "claude".into(),
+            provider: "zai".into(),
+            model: "glm-5.1".into(),
+            api_key: Some("key123".into()),
+            claude_md: Some("coding".into()),
+        };
+        let toml = toml::to_string_pretty(&bp).unwrap();
+        assert!(toml.contains("api_key"));
+        assert!(toml.contains("claude_md"));
+    }
+
+    #[test]
+    fn instance_roundtrip() {
+        let inst = Instance {
+            name: "my-inst".into(),
+            runtime: "pi".into(),
+            provider: "openrouter".into(),
+            model: "gpt-4o".into(),
+            api_key: Some("sk-test".into()),
+        };
+
+        let toml = toml::to_string_pretty(&inst).unwrap();
+        let loaded: Instance = toml::from_str(&toml).unwrap();
+
+        assert_eq!(loaded.name, "my-inst");
+        assert_eq!(loaded.runtime, "pi");
+        assert_eq!(loaded.provider, "openrouter");
+        assert_eq!(loaded.model, "gpt-4o");
+        assert_eq!(loaded.api_key, Some("sk-test".into()));
+    }
+
+    #[test]
+    fn instance_without_api_key_roundtrip() {
+        let inst = Instance {
+            name: "nokey".into(),
+            runtime: "claude".into(),
+            provider: "anthropic".into(),
+            model: "haiku".into(),
+            api_key: None,
+        };
+
+        let toml = toml::to_string_pretty(&inst).unwrap();
+        let loaded: Instance = toml::from_str(&toml).unwrap();
+
+        assert_eq!(loaded.api_key, None);
+    }
+}
+
 /// AI identity — runtime, provider, model. Stored globally.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Blueprint {

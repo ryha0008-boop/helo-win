@@ -1066,4 +1066,31 @@ mod tests {
     fn provider_key_env_unknown_uppercases() {
         assert_eq!(provider_key_env("myprovider"), "MYPROVIDER_API_KEY");
     }
+
+    // ── mask_key ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn mask_key_long() {
+        assert_eq!(mask_key("abcdefghijk"), "abcd...hijk");
+    }
+
+    #[test]
+    fn mask_key_eight_chars() {
+        assert_eq!(mask_key("12345678"), "********");
+    }
+
+    #[test]
+    fn mask_key_nine_chars() {
+        assert_eq!(mask_key("123456789"), "1234...6789");
+    }
+
+    #[test]
+    fn mask_key_short() {
+        assert_eq!(mask_key("abc"), "***");
+    }
+
+    #[test]
+    fn mask_key_empty() {
+        assert_eq!(mask_key(""), "");
+    }
 }

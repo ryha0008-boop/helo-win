@@ -1,8 +1,7 @@
 //! CLI integration tests — exercise all non-interactive commands via subprocess.
 //!
-//! Isolation: sets APPDATA to a temp dir so helo writes config there
-//! instead of the real user config. On Windows, ProjectDirs uses
-//! %APPDATA%/<app>/config, so this cleanly redirects all reads/writes.
+//! Isolation: sets HELO_CONFIG_DIR to a temp dir so helo writes config there
+//! instead of the real user config. Works on all platforms.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -14,12 +13,27 @@ fn helo_bin() -> PathBuf {
         .into()
 }
 
-/// Run helo with APPDATA redirected to a temp dir.
+/// Run helo with HELO_CONFIG_DIR redirected to a temp dir.
 /// Returns (stdout, stderr, exit_code).
-fn helo(appdata: &std::path::Path, args: &[&str]) -> (String, String, Option<i32>) {
+fn helo(config_dir: &std::path::Path, args: &[&str]) -> (String, String, Option<i32>) {
     let output = Command::new(helo_bin())
         .args(args)
-        .env("APPDATA", appdata)
+        .env("HELO_CONFIG_DIR", config_dir)
+        .output()
+        .expect("failed to run helo");
+    (
+        String::from_utf8_lossy(&output.stdout).into_owned(),
+        String::from_utf8_lossy(&output.stderr).into_owned(),
+        output.status.code(),
+    )
+}
+
+/// Run helo with config isolation AND a specific working directory.
+fn helo_in_dir(config_dir: &std::path::Path, cwd: &std::path::Path, args: &[&str]) -> (String, String, Option<i32>) {
+    let output = Command::new(helo_bin())
+        .args(args)
+        .env("HELO_CONFIG_DIR", config_dir)
+        .current_dir(cwd)
         .output()
         .expect("failed to run helo");
     (
@@ -33,51 +47,49 @@ fn helo(appdata: &std::path::Path, args: &[&str]) -> (String, String, Option<i32
 
 #[test]
 fn add_list_remove_lifecycle() {
-    let tmp = tempfile::tempdir().unwrap();
-    let appdata = tmp.path();
+    let cfg = tempfile::tempdir().unwrap();
 
     // Empty list
-    let (out, _, _) = helo(appdata, &["list"]);
+    let (out, _, _) = helo(cfg.path(), &["list"]);
     assert!(out.contains("No blueprints"));
 
     // Add
-    let (out, _, code) = helo(appdata, &[
+    let (out, _, code) = helo(cfg.path(), &[
         "add", "test-bp", "--runtime", "claude", "--provider", "anthropic", "--model", "sonnet-4"
     ]);
     assert_eq!(code, Some(0));
     assert!(out.contains("Added blueprint 'test-bp'"));
 
     // List shows it
-    let (out, _, _) = helo(appdata, &["list"]);
+    let (out, _, _) = helo(cfg.path(), &["list"]);
     assert!(out.contains("test-bp"));
     assert!(out.contains("claude"));
     assert!(out.contains("sonnet-4"));
 
     // Remove
-    let (out, _, code) = helo(appdata, &["remove", "test-bp"]);
+    let (out, _, code) = helo(cfg.path(), &["remove", "test-bp"]);
     assert_eq!(code, Some(0));
     assert!(out.contains("Removed 'test-bp'"));
 
     // Empty again
-    let (out, _, _) = helo(appdata, &["list"]);
+    let (out, _, _) = helo(cfg.path(), &["list"]);
     assert!(out.contains("No blueprints"));
 }
 
 #[test]
 fn add_duplicate_fails() {
-    let tmp = tempfile::tempdir().unwrap();
-    let appdata = tmp.path();
+    let cfg = tempfile::tempdir().unwrap();
 
-    helo(appdata, &["add", "dup", "--runtime", "claude", "--provider", "anthropic", "--model", "s"]);
-    let (_, err, code) = helo(appdata, &["add", "dup", "--runtime", "claude", "--provider", "anthropic", "--model", "s"]);
+    helo(cfg.path(), &["add", "dup", "--runtime", "claude", "--provider", "anthropic", "--model", "s"]);
+    let (_, err, code) = helo(cfg.path(), &["add", "dup", "--runtime", "claude", "--provider", "anthropic", "--model", "s"]);
     assert_ne!(code, Some(0));
     assert!(err.contains("already exists"));
 }
 
 #[test]
 fn remove_nonexistent_fails() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (_, err, code) = helo(tmp.path(), &["remove", "ghost"]);
+    let cfg = tempfile::tempdir().unwrap();
+    let (_, err, code) = helo(cfg.path(), &["remove", "ghost"]);
     assert_ne!(code, Some(0));
     assert!(err.contains("no blueprint named 'ghost'"));
 }
@@ -86,13 +98,12 @@ fn remove_nonexistent_fails() {
 
 #[test]
 fn list_json_output() {
-    let tmp = tempfile::tempdir().unwrap();
-    let appdata = tmp.path();
+    let cfg = tempfile::tempdir().unwrap();
 
-    helo(appdata, &["add", "j1", "--runtime", "claude", "--provider", "anthropic", "--model", "sonnet"]);
-    helo(appdata, &["add", "j2", "--runtime", "pi", "--provider", "openrouter", "--model", "gpt-4o"]);
+    helo(cfg.path(), &["add", "j1", "--runtime", "claude", "--provider", "anthropic", "--model", "sonnet"]);
+    helo(cfg.path(), &["add", "j2", "--runtime", "pi", "--provider", "openrouter", "--model", "gpt-4o"]);
 
-    let (out, _, code) = helo(appdata, &["list", "--json"]);
+    let (out, _, code) = helo(cfg.path(), &["list", "--json"]);
     assert_eq!(code, Some(0));
 
     let parsed: serde_json::Value = serde_json::from_str(out.trim()).expect("valid JSON");
@@ -108,8 +119,8 @@ fn list_json_output() {
 
 #[test]
 fn list_json_empty() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (out, _, code) = helo(tmp.path(), &["list", "--json"]);
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &["list", "--json"]);
     assert_eq!(code, Some(0));
     assert_eq!(out.trim(), "[]");
 }
@@ -118,51 +129,128 @@ fn list_json_empty() {
 
 #[test]
 fn key_set_and_clear() {
-    let tmp = tempfile::tempdir().unwrap();
-    let appdata = tmp.path();
+    let cfg = tempfile::tempdir().unwrap();
 
-    helo(appdata, &["add", "keytest", "--runtime", "claude", "--provider", "anthropic", "--model", "s"]);
+    helo(cfg.path(), &["add", "keytest", "--runtime", "claude", "--provider", "anthropic", "--model", "s"]);
 
     // Set key
-    let (out, _, code) = helo(appdata, &["key", "keytest", "sk-abc123"]);
+    let (out, _, code) = helo(cfg.path(), &["key", "keytest", "sk-abc123"]);
     assert_eq!(code, Some(0));
     assert!(out.contains("Updated api_key for 'keytest'"));
 
     // Clear key
-    let (out, _, code) = helo(appdata, &["key", "keytest", ""]);
+    let (out, _, code) = helo(cfg.path(), &["key", "keytest", ""]);
     assert_eq!(code, Some(0));
     assert!(out.contains("Cleared api_key"));
 }
 
 #[test]
 fn key_nonexistent_blueprint_fails() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (_, err, code) = helo(tmp.path(), &["key", "ghost", "sk-123"]);
+    let cfg = tempfile::tempdir().unwrap();
+    let (_, err, code) = helo(cfg.path(), &["key", "ghost", "sk-123"]);
     assert_ne!(code, Some(0));
     assert!(err.contains("no blueprint named 'ghost'"));
 }
 
 #[test]
 fn key_stored_shows_in_status() {
-    let tmp = tempfile::tempdir().unwrap();
-    let appdata = tmp.path();
+    let cfg = tempfile::tempdir().unwrap();
 
-    helo(appdata, &["add", "k", "--runtime", "claude", "--provider", "anthropic", "--model", "s"]);
-    helo(appdata, &["key", "k", "sk-test"]);
+    helo(cfg.path(), &["add", "k", "--runtime", "claude", "--provider", "anthropic", "--model", "s"]);
+    helo(cfg.path(), &["key", "k", "sk-test"]);
 
-    // Key is stored in config.toml; verify via list --json that api_key is present
-    // (list --json doesn't expose api_key, but the key command succeeded — trust that)
-    // Instead verify through status that config exists
-    let (out, _, _) = helo(appdata, &["status"]);
+    let (out, _, _) = helo(cfg.path(), &["status"]);
     assert!(out.contains("Blueprints: 1"));
+}
+
+// ── global keys ───────────────────────────────────────────────────────────────
+
+#[test]
+fn keys_list_empty() {
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &["keys", "list"]);
+    assert_eq!(code, Some(0));
+    assert!(out.contains("No global keys"));
+}
+
+#[test]
+fn keys_set_and_list() {
+    let cfg = tempfile::tempdir().unwrap();
+
+    let (out, _, code) = helo(cfg.path(), &["keys", "set", "zai", "abc123longkey"]);
+    assert_eq!(code, Some(0));
+    assert!(out.contains("Set global key for 'zai'"));
+
+    let (out, _, _) = helo(cfg.path(), &["keys", "list"]);
+    assert!(out.contains("zai"));
+    // Key should be masked (not full plaintext)
+    assert!(!out.contains("abc123longkey"));
+}
+
+#[test]
+fn keys_remove() {
+    let cfg = tempfile::tempdir().unwrap();
+
+    helo(cfg.path(), &["keys", "set", "anthropic", "sk-test"]);
+    let (out, _, code) = helo(cfg.path(), &["keys", "remove", "anthropic"]);
+    assert_eq!(code, Some(0));
+    assert!(out.contains("Removed global key for 'anthropic'"));
+
+    let (out, _, _) = helo(cfg.path(), &["keys", "list"]);
+    assert!(out.contains("No global keys"));
+}
+
+#[test]
+fn keys_remove_nonexistent() {
+    let cfg = tempfile::tempdir().unwrap();
+    let (_, err, code) = helo(cfg.path(), &["keys", "remove", "ghost"]);
+    assert_ne!(code, Some(0));
+    assert!(err.contains("no global key for 'ghost'"));
+}
+
+#[test]
+fn add_auto_fills_global_key() {
+    let cfg = tempfile::tempdir().unwrap();
+
+    // Set global key for anthropic
+    helo(cfg.path(), &["keys", "set", "anthropic", "sk-global-key"]);
+
+    // Add blueprint without --api-key — should auto-fill from global
+    let (_, _, code) = helo(cfg.path(), &[
+        "add", "autokey", "--runtime", "claude", "--provider", "anthropic", "--model", "sonnet"
+    ]);
+    assert_eq!(code, Some(0));
+
+    // Verify via list --json that the key was stored
+    // (list --json doesn't expose api_key, so check config.toml directly)
+    let config_path = cfg.path().join("config.toml");
+    let config_content = std::fs::read_to_string(config_path).unwrap();
+    assert!(config_content.contains("sk-global-key"));
+}
+
+#[test]
+fn add_flag_overrides_global_key() {
+    let cfg = tempfile::tempdir().unwrap();
+
+    // Set global key
+    helo(cfg.path(), &["keys", "set", "anthropic", "sk-global"]);
+
+    // Add with --api-key should use the flag value, not global
+    helo(cfg.path(), &[
+        "add", "override", "--runtime", "claude", "--provider", "anthropic",
+        "--model", "sonnet", "--api-key", "sk-flag"
+    ]);
+
+    let config_content = std::fs::read_to_string(cfg.path().join("config.toml")).unwrap();
+    assert!(config_content.contains("sk-flag"));
 }
 
 // ── status --json ─────────────────────────────────────────────────────────────
 
 #[test]
 fn status_json_structure() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (out, _, code) = helo(tmp.path(), &["status", "--json"]);
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &["status", "--json"]);
     assert_eq!(code, Some(0));
 
     let parsed: serde_json::Value = serde_json::from_str(out.trim()).expect("valid JSON");
@@ -176,8 +264,8 @@ fn status_json_structure() {
 
 #[test]
 fn templates_list() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (out, _, code) = helo(tmp.path(), &["templates", "list"]);
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &["templates", "list"]);
     assert_eq!(code, Some(0));
     assert!(out.contains("coding"));
     assert!(out.contains("assistant"));
@@ -186,24 +274,32 @@ fn templates_list() {
 
 #[test]
 fn templates_show_coding() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (out, _, code) = helo(tmp.path(), &["templates", "show", "coding"]);
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &["templates", "show", "coding"]);
+    assert_eq!(code, Some(0));
+    assert!(!out.trim().is_empty());
+}
+
+#[test]
+fn templates_show_assistant() {
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &["templates", "show", "assistant"]);
     assert_eq!(code, Some(0));
     assert!(!out.trim().is_empty());
 }
 
 #[test]
 fn templates_show_unknown_fails() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (_, err, code) = helo(tmp.path(), &["templates", "show", "nonexistent"]);
+    let cfg = tempfile::tempdir().unwrap();
+    let (_, err, code) = helo(cfg.path(), &["templates", "show", "nonexistent"]);
     assert_ne!(code, Some(0));
     assert!(err.contains("unknown template"));
 }
 
 #[test]
 fn templates_init() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (out, _, code) = helo(tmp.path(), &["templates", "init"]);
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &["templates", "init"]);
     assert_eq!(code, Some(0));
     assert!(out.contains("Templates written to"));
 }
@@ -212,31 +308,28 @@ fn templates_init() {
 
 #[test]
 fn add_with_template_name() {
-    let tmp = tempfile::tempdir().unwrap();
-    let appdata = tmp.path();
+    let cfg = tempfile::tempdir().unwrap();
 
     // Init templates first so the template file exists
-    helo(appdata, &["templates", "init"]);
+    helo(cfg.path(), &["templates", "init"]);
 
-    let (out, _, code) = helo(appdata, &[
+    let (add_out, _, code) = helo(cfg.path(), &[
         "add", "tpl-bp", "--runtime", "claude", "--provider", "anthropic",
         "--model", "sonnet", "--claude-md", "coding"
     ]);
     assert_eq!(code, Some(0));
-    assert!(out.contains("Added blueprint 'tpl-bp'"));
+    assert!(add_out.contains("Added blueprint 'tpl-bp'"));
 
-    // List should show CLAUDE.MD column with coding
-    let (out, _, _) = helo(appdata, &["list"]);
+    let (out, _, _) = helo(cfg.path(), &["list"]);
     assert!(out.contains("coding"));
 }
 
 #[test]
 fn add_with_bad_template_name_fails() {
-    let tmp = tempfile::tempdir().unwrap();
-    let appdata = tmp.path();
-    helo(appdata, &["templates", "init"]);
+    let cfg = tempfile::tempdir().unwrap();
+    helo(cfg.path(), &["templates", "init"]);
 
-    let (_, err, code) = helo(appdata, &[
+    let (_, err, code) = helo(cfg.path(), &[
         "add", "bad", "--runtime", "claude", "--provider", "anthropic",
         "--model", "s", "--claude-md", "nonexistent"
     ]);
@@ -246,14 +339,12 @@ fn add_with_bad_template_name_fails() {
 
 #[test]
 fn add_with_file_path_claude_md() {
-    let tmp = tempfile::tempdir().unwrap();
-    let appdata = tmp.path();
+    let cfg = tempfile::tempdir().unwrap();
 
-    // Write a temp CLAUDE.md file
-    let md_file = appdata.join("my-claude.md");
+    let md_file = cfg.path().join("my-claude.md");
     std::fs::write(&md_file, "# Test instructions").unwrap();
 
-    let (out, _, code) = helo(appdata, &[
+    let (out, _, code) = helo(cfg.path(), &[
         "add", "file-bp", "--runtime", "claude", "--provider", "anthropic",
         "--model", "sonnet", "--claude-md", md_file.to_str().unwrap()
     ]);
@@ -265,28 +356,26 @@ fn add_with_file_path_claude_md() {
 
 #[test]
 fn defaults_show_when_none() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (out, _, code) = helo(tmp.path(), &["defaults", "show", "claude"]);
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &["defaults", "show", "claude"]);
     assert_eq!(code, Some(0));
     assert!(out.contains("No defaults set"));
 }
 
 #[test]
 fn defaults_set_and_show() {
-    let tmp = tempfile::tempdir().unwrap();
-    let appdata = tmp.path();
+    let cfg = tempfile::tempdir().unwrap();
 
-    // Write a temp settings file
-    let settings = appdata.join("my-settings.json");
+    let settings = cfg.path().join("my-settings.json");
     std::fs::write(&settings, "{\"model\": \"opus\"}").unwrap();
 
-    let (out, _, code) = helo(appdata, &[
+    let (out, _, code) = helo(cfg.path(), &[
         "defaults", "set", "claude", settings.to_str().unwrap()
     ]);
     assert_eq!(code, Some(0));
     assert!(out.contains("Saved defaults for 'claude'"));
 
-    let (out, _, _) = helo(appdata, &["defaults", "show", "claude"]);
+    let (out, _, _) = helo(cfg.path(), &["defaults", "show", "claude"]);
     assert!(out.contains("opus"));
 }
 
@@ -294,8 +383,8 @@ fn defaults_set_and_show() {
 
 #[test]
 fn add_with_api_key() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (out, _, code) = helo(tmp.path(), &[
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &[
         "add", "keyed", "--runtime", "claude", "--provider", "anthropic",
         "--model", "sonnet", "--api-key", "sk-direct"
     ]);
@@ -307,69 +396,57 @@ fn add_with_api_key() {
 
 #[test]
 fn add_zai_provider() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (out, _, code) = helo(tmp.path(), &[
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &[
         "add", "zai-bp", "--runtime", "claude", "--provider", "zai",
         "--model", "glm-5.1", "--api-key", "zai-test-key"
     ]);
     assert_eq!(code, Some(0));
     assert!(out.contains("Added blueprint 'zai-bp'"));
 
-    let (out, _, _) = helo(tmp.path(), &["list"]);
+    let (out, _, _) = helo(cfg.path(), &["list"]);
     assert!(out.contains("zai"));
     assert!(out.contains("glm-5.1"));
 }
 
-// ── run error cases (don't test actual launch, just error paths) ──────────────
+// ── run error cases ───────────────────────────────────────────────────────────
 
 #[test]
 fn run_nonexistent_blueprint() {
-    let tmp = tempfile::tempdir().unwrap();
+    let cfg = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();
 
-    let output = Command::new(helo_bin())
-        .args(["run", "ghost"])
-        .env("APPDATA", tmp.path())
-        .current_dir(project.path())
-        .output()
-        .expect("failed to run helo");
-
-    let err = String::from_utf8_lossy(&output.stderr);
-    assert_ne!(output.status.code(), Some(0));
+    let (_, err, code) = helo_in_dir(cfg.path(), project.path(), &["run", "ghost"]);
+    assert_ne!(code, Some(0));
     assert!(err.contains("no blueprint named 'ghost'"));
 }
 
 #[test]
 fn run_no_name_no_instances() {
-    let tmp = tempfile::tempdir().unwrap();
+    let cfg = tempfile::tempdir().unwrap();
     let project = tempfile::tempdir().unwrap();
 
-    let output = Command::new(helo_bin())
-        .args(["run"])
-        .env("APPDATA", tmp.path())
-        .current_dir(project.path())
-        .output()
-        .expect("failed to run helo");
-
-    let err = String::from_utf8_lossy(&output.stderr);
-    assert_ne!(output.status.code(), Some(0));
+    let (_, err, code) = helo_in_dir(cfg.path(), project.path(), &["run"]);
+    assert_ne!(code, Some(0));
     assert!(err.contains("no instances"));
 }
 
 // ── clean ─────────────────────────────────────────────────────────────────────
 
 #[test]
-fn clean_nonexistent_dir() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (out, _, code) = helo(tmp.path(), &["clean", "claude", "--yes"]);
+fn clean_nonexistent_dir_or_success() {
+    // Note: this test isn't fully isolated because clean checks ~/.claude
+    // which depends on the actual user's home directory.
+    // We just verify it exits successfully (0) whether or not the dir exists.
+    let cfg = tempfile::tempdir().unwrap();
+    let (_, _, code) = helo(cfg.path(), &["clean", "claude", "--yes"]);
     assert_eq!(code, Some(0));
-    assert!(out.contains("Nothing to clean"));
 }
 
 #[test]
 fn clean_unknown_runtime_fails() {
-    let tmp = tempfile::tempdir().unwrap();
-    let (_, err, code) = helo(tmp.path(), &["clean", "unknown", "--yes"]);
+    let cfg = tempfile::tempdir().unwrap();
+    let (_, err, code) = helo(cfg.path(), &["clean", "unknown", "--yes"]);
     assert_ne!(code, Some(0));
     assert!(err.contains("unknown runtime"));
 }
@@ -378,7 +455,8 @@ fn clean_unknown_runtime_fails() {
 
 #[test]
 fn help_flag() {
-    let (out, _, code) = helo(tempfile::tempdir().unwrap().path(), &["--help"]);
+    let cfg = tempfile::tempdir().unwrap();
+    let (out, _, code) = helo(cfg.path(), &["--help"]);
     assert_eq!(code, Some(0));
     assert!(out.contains("Isolated AI agent environments"));
     assert!(out.contains("Commands:"));

@@ -201,6 +201,14 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    // Guard to clean up HELO_CONFIG_DIR after tests that set it
+    struct ConfigTestGuard;
+    impl Drop for ConfigTestGuard {
+        fn drop(&mut self) {
+            std::env::remove_var("HELO_CONFIG_DIR");
+        }
+    }
+
     fn make_instance(name: &str, runtime: &str) -> Instance {
         Instance {
             name: name.into(),
@@ -291,6 +299,9 @@ mod tests {
 
     #[test]
     fn settings_json_created_for_claude() {
+        let cfg_tmp = TempDir::new().unwrap();
+        std::env::set_var("HELO_CONFIG_DIR", cfg_tmp.path());
+        let _guard = ConfigTestGuard;
         let tmp = TempDir::new().unwrap();
         let inst = Instance {
             name: "test".into(),
@@ -309,6 +320,9 @@ mod tests {
 
     #[test]
     fn settings_json_hooks_contain_stale_flag_logic() {
+        let cfg_tmp = TempDir::new().unwrap();
+        std::env::set_var("HELO_CONFIG_DIR", cfg_tmp.path());
+        let _guard = ConfigTestGuard;
         let tmp = TempDir::new().unwrap();
         let inst = Instance {
             name: "test".into(),
@@ -319,14 +333,21 @@ mod tests {
         };
         save_instance(tmp.path(), &inst, None).unwrap();
         let settings = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
-        // Stop hook checks commit timestamps
-        assert!(settings.contains("claude-md-stale"));
-        // UPS hook reads flag and injects context
+        // Stop hook creates .git/claude-md-stale flag file
+        // UPS hook removes flag and adds additionalContext
+        assert!(
+            settings.contains("claude-md-stale"),
+            "settings should contain claude-md-stale. Actual: {}",
+            settings
+        );
         assert!(settings.contains("additionalContext"));
     }
 
     #[test]
     fn settings_json_valid_json() {
+        let cfg_tmp = TempDir::new().unwrap();
+        std::env::set_var("HELO_CONFIG_DIR", cfg_tmp.path());
+        let _guard = ConfigTestGuard;
         let tmp = TempDir::new().unwrap();
         let inst = Instance {
             name: "test".into(),
@@ -380,59 +401,52 @@ mod tests {
 
     #[test]
     fn zai_settings_json_env_block() {
-        let tmp = TempDir::new().unwrap();
-        // Redirect config so we don't pick up user defaults
         let cfg_tmp = TempDir::new().unwrap();
         std::env::set_var("HELO_CONFIG_DIR", cfg_tmp.path());
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let inst = Instance {
-                name: "zai-test".into(),
-                runtime: "claude".into(),
-                provider: "zai".into(),
-                model: "glm-5.1".into(),
-                api_key: Some("test-key-123".into()),
-            };
-            save_instance(tmp.path(), &inst, None).unwrap();
-            let settings = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
-            let parsed: serde_json::Value = serde_json::from_str(&settings)
-                .expect("settings.json should be valid JSON");
-            // env block present
-            let env = parsed.get("env").expect("must have env block");
-            assert_eq!(env["ANTHROPIC_BASE_URL"], "https://api.z.ai/api/anthropic");
-            assert_eq!(env["ANTHROPIC_AUTH_TOKEN"], "test-key-123");
-            assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "glm-5.1");
-            assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "glm-5.1");
-            assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "glm-5.1");
-            // effortLevel
-            assert_eq!(parsed["effortLevel"], "high");
-            // hooks present
-            assert!(parsed.get("hooks").is_some());
-        }));
-        std::env::remove_var("HELO_CONFIG_DIR");
-        assert!(result.is_ok());
+        let _guard = ConfigTestGuard;
+        let tmp = TempDir::new().unwrap();
+        let inst = Instance {
+            name: "zai-test".into(),
+            runtime: "claude".into(),
+            provider: "zai".into(),
+            model: "glm-5.1".into(),
+            api_key: Some("test-key-123".into()),
+        };
+        save_instance(tmp.path(), &inst, None).unwrap();
+        let settings = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&settings)
+            .expect("settings.json should be valid JSON");
+        // env block present
+        let env = parsed.get("env").expect("must have env block");
+        assert_eq!(env["ANTHROPIC_BASE_URL"], "https://api.z.ai/api/anthropic");
+        assert_eq!(env["ANTHROPIC_AUTH_TOKEN"], "test-key-123");
+        assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "glm-5.1");
+        assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "glm-5.1");
+        assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "glm-5.1");
+        // effortLevel
+        assert_eq!(parsed["effortLevel"], "high");
+        // hooks present
+        assert!(parsed.get("hooks").is_some());
     }
 
     #[test]
     fn zai_settings_json_no_key() {
-        let tmp = TempDir::new().unwrap();
         let cfg_tmp = TempDir::new().unwrap();
         std::env::set_var("HELO_CONFIG_DIR", cfg_tmp.path());
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let inst = Instance {
-                name: "zai-nokey".into(),
-                runtime: "claude".into(),
-                provider: "zai".into(),
-                model: "glm-5.1".into(),
-                api_key: None,
-            };
-            save_instance(tmp.path(), &inst, None).unwrap();
-            let settings = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
-            let parsed: serde_json::Value = serde_json::from_str(&settings).unwrap();
-            // Empty string when no key stored (falls back to env var at runtime)
-            assert_eq!(parsed["env"]["ANTHROPIC_AUTH_TOKEN"], "");
-        }));
-        std::env::remove_var("HELO_CONFIG_DIR");
-        assert!(result.is_ok());
+        let _guard = ConfigTestGuard;
+        let tmp = TempDir::new().unwrap();
+        let inst = Instance {
+            name: "zai-nokey".into(),
+            runtime: "claude".into(),
+            provider: "zai".into(),
+            model: "glm-5.1".into(),
+            api_key: None,
+        };
+        save_instance(tmp.path(), &inst, None).unwrap();
+        let settings = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&settings).unwrap();
+        // Empty string when no key stored (falls back to env var at runtime)
+        assert_eq!(parsed["env"]["ANTHROPIC_AUTH_TOKEN"], "");
     }
 
     // ── CLAUDE.md seeding ─────────────────────────────────────────────────────

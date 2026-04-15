@@ -499,12 +499,25 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
                 pi_args.push(' ');
                 pi_args.push_str(arg);
             }
-            let mut c = std::process::Command::new("cmd");
+
+            // Platform-specific shell invocation
+            #[cfg(windows)]
+            let mut c = {
+                let mut c = std::process::Command::new("cmd");
+                c.args(["/c", &pi_args]);
+                c
+            };
+            #[cfg(not(windows))]
+            let mut c = {
+                let mut c = std::process::Command::new("sh");
+                c.args(["-c", &pi_args]);
+                c
+            };
+
             c.env("PI_CODING_AGENT_DIR", env_dir);
-            c.args(["/c", &pi_args]);
             let status = c
                 .status()
-                .with_context(|| "could not launch pi via cmd.exe")?;
+                .with_context(|| "could not launch pi — is it installed and in PATH?")?;
             Ok(status.code().unwrap_or(1))
         }
         "opencode" => {

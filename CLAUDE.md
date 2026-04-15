@@ -1,6 +1,6 @@
-# helo-win
+# helo
 
-Isolated AI agent environments — like Python venvs but for AI runtimes (Claude, pi, opencode).
+Isolated AI agent environments — like Python venvs but for AI runtimes (Claude, pi, opencode). Cross-platform: Windows, Linux, macOS.
 
 ## Architecture
 
@@ -15,7 +15,7 @@ Isolated AI agent environments — like Python venvs but for AI runtimes (Claude
 | Runtime | Env var set | Notes |
 |---------|-------------|-------|
 | claude | `CLAUDE_CONFIG_DIR` | settings.json seeded on first run |
-| pi | `PI_CODING_AGENT_DIR` | launched via `cmd /c` (Windows .cmd wrapper) |
+| pi | `PI_CODING_AGENT_DIR` | Windows: `cmd /c`; Linux/macOS: `sh -c` |
 | opencode | `OPENCODE_CONFIG` | — |
 
 ## Claude settings.json
@@ -112,7 +112,10 @@ New Claude envs copy `<helo_config>/defaults/claude.json` if it exists, otherwis
 helo defaults set claude <path/to/settings.json>
 ```
 
-Defaults are stored at `%APPDATA%\helo\config\defaults\claude.json`.
+Default locations (via `directories` crate):
+- Windows: `%APPDATA%\helo\config\defaults\claude.json`
+- Linux: `~/.config/helo/defaults/claude.json`
+- macOS: `~/Library/Application Support/helo/defaults/claude.json`
 
 **Config override:** set `HELO_CONFIG_DIR` env var to redirect all config reads/writes (used by integration tests).
 

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 /// AI identity — runtime, provider, model. Stored globally.
@@ -7,7 +8,7 @@ pub struct Blueprint {
     pub runtime: String, // "pi" | "claude" | "opencode"
     pub provider: String,
     pub model: String,
-    /// API key stored in blueprint (optional — falls back to env var).
+    /// API key stored in blueprint (optional — falls back to global key then env var).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
     /// Path to a CLAUDE.md template seeded into the env dir on first run.
@@ -30,4 +31,7 @@ pub struct Instance {
 pub struct Config {
     #[serde(default)]
     pub blueprints: Vec<Blueprint>,
+    /// Global API keys per provider. Auto-applied when creating blueprints.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub keys: HashMap<String, String>,
 }

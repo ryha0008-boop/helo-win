@@ -66,6 +66,9 @@ helo status
 helo defaults set <runtime> <settings.json>   # save as global default for new envs
 helo defaults show <runtime>                  # show current default
 helo key <name> <key>                         # set/update api_key for an existing blueprint
+helo keys list                                # list global API keys
+helo keys set <provider> <key>                # set global key (auto-applied on add)
+helo keys remove <provider>                   # remove global key
 helo templates list                           # list built-in CLAUDE.md templates
 helo templates show <name>                    # print template content
 helo templates init                           # write templates to config dir
@@ -83,6 +86,23 @@ helo run mazas-bahuras -- -p "your prompt" --output-format json
 ```
 
 Claude's `-p` / `--print` flag runs a single prompt and exits. All helo isolation (CLAUDE_CONFIG_DIR, settings, memory) still applies. Useful for orchestration by another AI or automation scripts.
+
+## Global API keys
+
+Store a key once per provider — auto-applied when `helo add` creates a blueprint (no `--api-key` needed):
+
+```
+helo keys set zai <key>
+helo keys set anthropic <key>
+helo keys list
+helo keys remove zai
+```
+
+Interactive mode: press `g` to manage global keys.
+
+**Priority:** `--api-key` flag > global key > env var (`ZAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.)
+
+Keys are stored in `[keys]` section of `config.toml`.
 
 ## Default settings
 
@@ -158,6 +178,7 @@ Menu shows current blueprints by number. Type number to run, letter for actions:
 | 1–N | Run blueprint N (prompts: project dir, resume?, extra args) |
 | a | Add blueprint (guided prompts for all fields) |
 | k | Set/update API key for a blueprint |
+| g | Global keys (set/remove/list) |
 | d | Delete blueprint (pick by number, confirm) |
 | s | Status (config path + API key presence) |
 | t | Templates submenu (`show <name>`, `init`) |

@@ -115,6 +115,11 @@ enum Commands {
         #[command(subcommand)]
         sub: TemplatesCommands,
     },
+    /// Manage global API keys (auto-applied when creating blueprints)
+    Keys {
+        #[command(subcommand)]
+        sub: KeysCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -143,6 +148,24 @@ enum DefaultsCommands {
     Show {
         /// Runtime: pi, claude, or opencode
         runtime: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum KeysCommands {
+    /// List stored global keys
+    List,
+    /// Set a global key for a provider
+    Set {
+        /// Provider name (e.g. zai, anthropic, openrouter)
+        provider: String,
+        /// The key value
+        key: String,
+    },
+    /// Remove a global key for a provider
+    Remove {
+        /// Provider name
+        provider: String,
     },
 }
 
@@ -180,6 +203,11 @@ fn run() -> Result<()> {
             TemplatesCommands::Show { name } => cmd_templates_show(&name),
             TemplatesCommands::Init => { ensure_templates()?; println!("Templates written to: {}", config::templates_dir()?.display()); Ok(()) }
         },
+        Commands::Keys { sub } => match sub {
+            KeysCommands::List => cmd_keys_list(),
+            KeysCommands::Set { provider, key } => cmd_keys_set(&provider, &key),
+            KeysCommands::Remove { provider } => cmd_keys_remove(&provider),
+        },
     }
 }
 
@@ -200,6 +228,11 @@ fn cmd_add(name: String, runtime: String, provider: String, model: String, api_k
     if cfg.blueprints.iter().any(|b| b.name == name) {
         bail!("blueprint '{name}' already exists. Remove it first with: helo remove {name}");
     }
+    // Auto-fill api_key from global keys if not provided via --api-key
+    let api_key = match api_key {
+        Some(k) if !k.is_empty() => Some(k),
+        _ => cfg.keys.get(&provider).cloned(),
+    };
     cfg.blueprints.push(models::Blueprint { name: name.clone(), runtime, provider, model, api_key, claude_md });
     config::save(&cfg)?;
     println!("Added blueprint '{name}'.");
@@ -306,6 +339,47 @@ fn cmd_key(name: String, key: String) -> Result<()> {
         println!("Updated api_key for '{name}'.");
     }
     Ok(())
+}
+
+fn cmd_keys_list() -> Result<()> {
+    let cfg = config::load()?;
+    if cfg.keys.is_empty() {
+        println!("No global keys stored. Use: helo keys set <provider> <key>");
+        return Ok(());
+    }
+    println!("{:<15} {}", "PROVIDER", "KEY");
+    println!("{}", "-".repeat(40));
+    for (provider, key) in &cfg.keys {
+        let masked = mask_key(key);
+        println!("{:<15} {}", provider, masked);
+    }
+    Ok(())
+}
+
+fn cmd_keys_set(provider: &str, key: &str) -> Result<()> {
+    let mut cfg = config::load()?;
+    cfg.keys.insert(provider.to_string(), key.to_string());
+    config::save(&cfg)?;
+    println!("Set global key for '{provider}'.");
+    Ok(())
+}
+
+fn cmd_keys_remove(provider: &str) -> Result<()> {
+    let mut cfg = config::load()?;
+    if cfg.keys.remove(provider).is_none() {
+        bail!("no global key for '{provider}'.");
+    }
+    config::save(&cfg)?;
+    println!("Removed global key for '{provider}'.");
+    Ok(())
+}
+
+fn mask_key(key: &str) -> String {
+    if key.len() <= 8 {
+        "*".repeat(key.len())
+    } else {
+        format!("{}...{}", &key[..4], &key[key.len()-4..])
+    }
 }
 
 fn cmd_run(name: Option<String>, resume: Option<Option<String>>, extra: Vec<String>) -> Result<()> {
@@ -606,9 +680,10 @@ fn run_interactive() -> Result<()> {
         }
         println!();
         println!("  a  add blueprint     d  delete blueprint");
-        println!("  k  set api key       s  status");
-        println!("  t  templates         c  clean runtime");
-        println!("  x  defaults          q  quit");
+        println!("  k  set api key       g  global keys");
+        println!("  s  status            c  clean runtime");
+        println!("  t  templates         x  defaults");
+        println!("  q  quit");
         println!();
 
         let input = iread("number to run, or letter: ")?;
@@ -644,6 +719,7 @@ fn run_interactive() -> Result<()> {
                 }
             }
             "s" => { if let Err(e) = cmd_status(false)        { println!("error: {e:#}"); } }
+            "g" => { if let Err(e) = interactive_keys()       { println!("error: {e:#}"); } }
             "t" => { if let Err(e) = interactive_templates()  { println!("error: {e:#}"); } }
             "c" => { if let Err(e) = interactive_clean()      { println!("error: {e:#}"); } }
             "x" => { if let Err(e) = interactive_defaults()   { println!("error: {e:#}"); } }
@@ -815,6 +891,39 @@ fn interactive_defaults() -> Result<()> {
             }
             ["set", runtime, path] => {
                 if let Err(e) = cmd_defaults_set(runtime, path) { println!("error: {e}"); }
+            }
+            _ => println!("Unknown: '{input}'"),
+        }
+    }
+    Ok(())
+}
+
+fn interactive_keys() -> Result<()> {
+    loop {
+        println!();
+        let cfg = config::load()?;
+        if cfg.keys.is_empty() {
+            println!("  (no global keys)");
+        } else {
+            println!("{:<15} {}", "PROVIDER", "KEY");
+            println!("  {}", "-".repeat(36));
+            for (provider, key) in &cfg.keys {
+                println!("  {:<15} {}", provider, mask_key(key));
+            }
+        }
+        println!();
+        println!("  set <provider> <key>  — add or update");
+        println!("  remove <provider>     — delete");
+        println!("  q                     — back");
+        let input = iread("> ")?;
+        let parts: Vec<&str> = input.splitn(3, ' ').collect();
+        match parts.as_slice() {
+            [cmd] if cmd.eq_ignore_ascii_case("q") || cmd.is_empty() => break,
+            ["set", provider, key] => {
+                if let Err(e) = cmd_keys_set(provider, key) { println!("error: {e}"); }
+            }
+            ["remove", provider] | ["rm", provider] => {
+                if let Err(e) = cmd_keys_remove(provider) { println!("error: {e}"); }
             }
             _ => println!("Unknown: '{input}'"),
         }

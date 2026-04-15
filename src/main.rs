@@ -841,3 +841,120 @@ fn shell_split(s: &str) -> Vec<String> {
     if !current.is_empty() { args.push(current); }
     args
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── json_str ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn json_str_plain() {
+        assert_eq!(json_str("hello"), "\"hello\"");
+    }
+
+    #[test]
+    fn json_str_empty() {
+        assert_eq!(json_str(""), "\"\"");
+    }
+
+    #[test]
+    fn json_str_escapes_quote() {
+        assert_eq!(json_str("a\"b"), "\"a\\\"b\"");
+    }
+
+    #[test]
+    fn json_str_escapes_backslash() {
+        assert_eq!(json_str("a\\b"), "\"a\\\\b\"");
+    }
+
+    #[test]
+    fn json_str_escapes_newline() {
+        assert_eq!(json_str("a\nb"), "\"a\\nb\"");
+    }
+
+    #[test]
+    fn json_str_escapes_tab() {
+        assert_eq!(json_str("a\tb"), "\"a\\tb\"");
+    }
+
+    #[test]
+    fn json_str_escapes_cr() {
+        assert_eq!(json_str("a\rb"), "\"a\\rb\"");
+    }
+
+    #[test]
+    fn json_str_escapes_control_char() {
+        assert_eq!(json_str("a\x07b"), "\"a\\u0007b\"");
+    }
+
+    #[test]
+    fn json_str_preserves_unicode() {
+        assert_eq!(json_str("日本語"), "\"日本語\"");
+    }
+
+    // ── shell_split ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn shell_split_basic() {
+        assert_eq!(shell_split("hello world"), vec!["hello", "world"]);
+    }
+
+    #[test]
+    fn shell_split_empty() {
+        assert!(shell_split("").is_empty());
+    }
+
+    #[test]
+    fn shell_split_quoted() {
+        assert_eq!(shell_split("-p \"my prompt\""), vec!["-p", "my prompt"]);
+    }
+
+    #[test]
+    fn shell_split_multiple_spaces() {
+        assert_eq!(shell_split("a   b"), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn shell_split_single_arg() {
+        assert_eq!(shell_split("hello"), vec!["hello"]);
+    }
+
+    #[test]
+    fn shell_split_only_spaces() {
+        assert!(shell_split("   ").is_empty());
+    }
+
+    #[test]
+    fn shell_split_unclosed_quote() {
+        // Unclosed quote — rest goes into one arg
+        assert_eq!(shell_split("\"hello world"), vec!["hello world"]);
+    }
+
+    #[test]
+    fn shell_split_multiple_quoted() {
+        assert_eq!(
+            shell_split("-p \"first prompt\" --flag \"second value\""),
+            vec!["-p", "first prompt", "--flag", "second value"]
+        );
+    }
+
+    // ── provider_key_env ──────────────────────────────────────────────────────
+
+    #[test]
+    fn provider_key_env_all_known() {
+        assert_eq!(provider_key_env("openrouter"), "OPENROUTER_API_KEY");
+        assert_eq!(provider_key_env("anthropic"), "ANTHROPIC_API_KEY");
+        assert_eq!(provider_key_env("openai"), "OPENAI_API_KEY");
+        assert_eq!(provider_key_env("groq"), "GROQ_API_KEY");
+        assert_eq!(provider_key_env("deepseek"), "DEEPSEEK_API_KEY");
+        assert_eq!(provider_key_env("zai"), "ZAI_API_KEY");
+        assert_eq!(provider_key_env("mistral"), "MISTRAL_API_KEY");
+        assert_eq!(provider_key_env("gemini"), "GEMINI_API_KEY");
+    }
+
+    #[test]
+    fn provider_key_env_unknown_uppercases() {
+        assert_eq!(provider_key_env("myprovider"), "MYPROVIDER_API_KEY");
+    }
+}

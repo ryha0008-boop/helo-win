@@ -21,6 +21,7 @@ interface SidebarProps {
   onRename: (id: string, name: string) => void;
   onDuplicate?: (id: string) => void;
   onReorder?: (fromIndex: number, toIndex: number) => void;
+  onShowGroupInPanes?: (groupSessionIds: string[]) => void;
   unreadSessions?: Set<string>;
   sessionMeta?: Map<string, SessionMeta>;
   paneIds?: string[];
@@ -65,7 +66,7 @@ export interface SidebarHandle {
   side: 'left' | 'right';
 }
 
-function SidebarInner({ sessions, canClose, onNew, onNewBrowser, onSelect, onClose, onRename, onDuplicate, onReorder, unreadSessions, sessionMeta, paneIds }: SidebarProps, ref: React.Ref<SidebarHandle>) {
+function SidebarInner({ sessions, canClose, onNew, onNewBrowser, onSelect, onClose, onRename, onDuplicate, onReorder, onShowGroupInPanes, unreadSessions, sessionMeta, paneIds }: SidebarProps, ref: React.Ref<SidebarHandle>) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const editCancelled = useRef(false);
@@ -447,6 +448,13 @@ function SidebarInner({ sessions, canClose, onNew, onNewBrowser, onSelect, onClo
                 return (
                   <div key={`group-${item.name}`} className="session-group-header"
                     onClick={() => toggleGroupCollapse(item.name)}
+                    onDoubleClick={() => {
+                      if (onShowGroupInPanes) {
+                        const gIds = groups[item.name] || [];
+                        const gSessions = sessions.filter((s) => gIds.includes(s.id));
+                        onShowGroupInPanes(gSessions.map((s) => s.id));
+                      }
+                    }}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       setGroupContextMenu({ x: e.clientX, y: e.clientY, groupName: item.name });

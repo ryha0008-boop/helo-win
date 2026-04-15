@@ -422,6 +422,21 @@ export default function App() {
     });
   }, []);
 
+  const handleShowGroupInPanes = useCallback((ids: string[]) => {
+    if (ids.length === 0) return;
+    const toShow = ids.slice(0, 4);
+    setPaneIds(toShow);
+    // Make first session active
+    setSessions((prev) => prev.map((s) => ({ ...s, isActive: s.id === toShow[0] })));
+    // Refit all terminals after pane change
+    setTimeout(() => {
+      for (const id of toShow) {
+        const entry = TerminalView.getTerminal(id);
+        if (entry) entry.fitAddon.fit();
+      }
+    }, 50);
+  }, []);
+
   const handleDuplicateSession = useCallback((id: string) => {
     const source = sessions.find((s) => s.id === id);
     if (!source) return;
@@ -752,6 +767,7 @@ export default function App() {
           onRename={handleRenameSession}
           onDuplicate={handleDuplicateSession}
           onReorder={handleReorderSessions}
+          onShowGroupInPanes={handleShowGroupInPanes}
           unreadSessions={unreadSessions}
           sessionMeta={sessionMeta}
           paneIds={paneIds}

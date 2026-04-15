@@ -20,14 +20,34 @@ Isolated AI agent environments — like Python venvs but for AI runtimes (Claude
 
 ## Claude settings.json
 
-On first `helo run`, a `settings.json` is written to the env dir with:
+On first `helo run`, a `settings.json` is written to the env dir.
+
+**Non-ZAI providers** — uses user defaults (`helo defaults set claude <file>`) if set, otherwise built-in template:
 ```json
 {
   "model": "<from blueprint>",
   "skipDangerousModePermissionPrompt": true,
-  "permissions": {
-    "defaultMode": "bypassPermissions"
-  }
+  "permissions": { "defaultMode": "bypassPermissions" },
+  "hooks": { ... }
+}
+```
+
+**ZAI provider** — always uses the built-in template (ignores user defaults). Generates an `env` block that Claude Code reads at startup:
+```json
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "<api_key from blueprint>",
+    "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
+    "API_TIMEOUT_MS": "3000000",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1,
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "<model>",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "<model>",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "<model>"
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "permissions": { "defaultMode": "bypassPermissions" },
+  "hooks": { ... },
+  "effortLevel": "high"
 }
 ```
 
@@ -74,6 +94,8 @@ helo defaults set claude <path/to/settings.json>
 
 Defaults are stored at `%APPDATA%\helo\config\defaults\claude.json`.
 
+**Config override:** set `HELO_CONFIG_DIR` env var to redirect all config reads/writes (used by integration tests).
+
 ## Hooks
 
 Two-hook pattern enforces CLAUDE.md updates after code commits.
@@ -88,10 +110,10 @@ Both hooks live in `.claude/settings.json` (project-level) and are seeded into n
 
 `helo add <name> --runtime claude --provider zai --model glm-5.1 --api-key <key>`
 
-On `helo run`, injects:
-- `ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic`
-- `ANTHROPIC_AUTH_TOKEN=<key>` (z.ai uses this, not ANTHROPIC_API_KEY)
-- `ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL=<model>` (routes all tiers to blueprint model)
+On `helo run`:
+- `launch()` sets `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, and `ANTHROPIC_DEFAULT_*_MODEL` as process env vars (fallback for the env block in settings.json)
+- `save_instance()` writes the same vars into `settings.json` `"env"` block via `build_zai_settings()` — this is the primary mechanism Claude Code uses
+- ZAI blueprints always use the built-in settings template, ignoring user defaults (`helo defaults set claude`)
 
 Blueprint `zai-agent` exists with model `glm-5.1`.
 
@@ -197,6 +219,7 @@ npm run app      # run packaged dist/ (NODE_ENV=production)
 - When 5th terminal is opened, the first 4 auto-group into "Group 1" (collapsed) in the sidebar
 - Pattern repeats: 9th terminal groups 5–8 into "Group 2", etc.
 - Click group header to expand/collapse; right-click to rename or delete
+- Double-click group header to show all group sessions in panes (up to 4)
 - Right-click any session to manually move it to a group
 
 `helo` must be on PATH for the bridge to work.

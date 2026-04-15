@@ -8,19 +8,27 @@ fn project_dirs() -> Result<directories::ProjectDirs> {
     ProjectDirs::from("", "", "helo").context("could not determine config directory")
 }
 
+/// Config directory — uses HELO_CONFIG_DIR env var if set, otherwise ProjectDirs.
+fn config_dir() -> Result<PathBuf> {
+    if let Ok(dir) = std::env::var("HELO_CONFIG_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
+    Ok(project_dirs()?.config_dir().to_path_buf())
+}
+
 pub fn config_path() -> Result<PathBuf> {
-    Ok(project_dirs()?.config_dir().join("config.toml"))
+    Ok(config_dir()?.join("config.toml"))
 }
 
 /// Path to the user-defined settings defaults for a given runtime.
 /// e.g. <config_dir>/defaults/claude.json
 pub fn defaults_path(runtime: &str) -> Result<PathBuf> {
-    Ok(project_dirs()?.config_dir().join("defaults").join(format!("{runtime}.json")))
+    Ok(config_dir()?.join("defaults").join(format!("{runtime}.json")))
 }
 
 /// Directory where built-in CLAUDE.md templates are stored.
 pub fn templates_dir() -> Result<PathBuf> {
-    Ok(project_dirs()?.config_dir().join("templates"))
+    Ok(config_dir()?.join("templates"))
 }
 
 /// Resolve a --claude-md value: if it's a known template name (no path separators,

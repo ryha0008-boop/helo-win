@@ -9,7 +9,28 @@ permissions:
   contents: write
 
 jobs:
+  # Extract release notes for this tag from CHANGELOG.md once,
+  # share them across all build jobs via a output.
+  notes:
+    runs-on: ubuntu-latest
+    outputs:
+      body: ${{ steps.extract.outputs.body }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract changelog section
+        id: extract
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          # Grab everything between the ## [TAG] heading and the next ## heading
+          BODY=$(awk "/^## \[$TAG\]/{found=1; next} found && /^## /{exit} found{print}" CHANGELOG.md)
+          # Pass multiline string to GitHub output
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$BODY"     >> "$GITHUB_OUTPUT"
+          echo "EOF"       >> "$GITHUB_OUTPUT"
+
   build:
+    needs: notes
     name: Build ${{ matrix.asset }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -57,4 +78,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.asset }}
-          generate_release_notes: false
+          body: ${{ needs.notes.outputs.body }}

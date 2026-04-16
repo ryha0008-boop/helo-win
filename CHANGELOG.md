@@ -7,15 +7,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.5] — 2026-04-16
+
 ### Added
-- GitHub Actions release workflow — pushes a tag and CI builds all four platform binaries automatically
-- Linux and macOS binaries (`helo-x86_64-linux`, `helo-aarch64-macos`, `helo-x86_64-macos`)
-- README: Linux/macOS install instructions
-- CLAUDE.md: release process documented
+- GitHub Actions release workflow — tag push triggers CI, builds all four platform binaries and attaches them to the release automatically
+- Linux (`helo-x86_64-linux`) and macOS (`helo-aarch64-macos`, `helo-x86_64-macos`) binaries in releases
+- README: Linux/macOS install instructions with per-platform binary table
 
 ### Fixed
-- `helo update` hardcoded `.exe` asset search — now selects the correct binary for the current platform
-- `config.rs`: template name detection used manual `/` and `\` checks — replaced with `Path::components()` which is platform-correct
+- `helo update` hardcoded `.exe` asset search — now selects the correct binary for the current platform; falls back to `.exe` search for older releases
+- `config.rs`: template name detection replaced manual `/` `\` checks with `Path::components()` — platform-correct on all OSes
 - `project.rs`: doc comment had Windows-style backslash path separator
 
 ## [0.1.4] — 2026-04-16

@@ -16,6 +16,8 @@ Isolated AI agent environments — like Python venvs but for AI runtimes (Claude
 
 Asset naming: `helo-x86_64-windows.exe`, `helo-x86_64-linux`, `helo-aarch64-macos`, `helo-x86_64-macos`
 
+Linux/macOS compat is solid — all platform-specific logic is `#[cfg]`-guarded. `directories` crate handles config paths per OS. `Path::join()` used throughout (no hardcoded separators).
+
 ## Development rules
 
 - **Every user-facing change gets a CHANGELOG.md entry** under `[Unreleased]` in the same commit as the code. No exceptions — if it's worth committing, it's worth logging.

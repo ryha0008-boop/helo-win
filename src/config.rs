@@ -34,7 +34,9 @@ pub fn templates_dir() -> Result<PathBuf> {
 /// Resolve a --claude-md value: if it's a known template name (no path separators,
 /// no extension), look up <templates_dir>/<name>.md; otherwise treat as a file path.
 pub fn resolve_claude_md(value: &str) -> Result<PathBuf> {
-    let is_name = !value.contains('/') && !value.contains('\\') && !value.contains('.');
+    let is_name = !std::path::Path::new(value).components().any(|c| matches!(c,
+        std::path::Component::RootDir | std::path::Component::Prefix(_) | std::path::Component::CurDir | std::path::Component::ParentDir
+    )) && !value.contains('.');
     if is_name {
         let path = templates_dir()?.join(format!("{value}.md"));
         if path.exists() {

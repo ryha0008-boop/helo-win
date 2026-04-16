@@ -23,7 +23,7 @@ pub fn json_str(s: &str) -> String {
 }
 
 /// Returns the env dir path for a given runtime + name inside a project.
-/// e.g. project\.pi-env-myagent
+/// e.g. project/.pi-env-myagent
 pub fn env_dir(project: &Path, runtime: &str, name: &str) -> PathBuf {
     let prefix = match runtime {
         "claude"   => ".claude-env",

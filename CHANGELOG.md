@@ -15,6 +15,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - `helo update` hardcoded `.exe` asset search — now selects the correct binary for the current platform
+- `config.rs`: template name detection used manual `/` and `\` checks — replaced with `Path::components()` which is platform-correct
+- `project.rs`: doc comment had Windows-style backslash path separator
 
 ## [0.1.4] — 2026-04-16
 

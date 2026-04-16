@@ -2,6 +2,11 @@
 
 Isolated AI agent environments — like Python venvs but for AI runtimes (Claude, pi, opencode). Cross-platform: Windows, Linux, macOS.
 
+## Docs
+
+- `README.md` — user-facing: install, concepts, quick start, command reference. Keep in sync with new commands.
+- `CHANGELOG.md` — version history. Every user-facing change gets an entry under `[Unreleased]` in the same commit.
+
 ## Development rules
 
 - **Every user-facing change gets a CHANGELOG.md entry** under `[Unreleased]` in the same commit as the code. No exceptions — if it's worth committing, it's worth logging.

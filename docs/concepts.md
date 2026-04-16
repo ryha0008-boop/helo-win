@@ -27,25 +27,65 @@ flowchart LR
     helo --- MECH
 ```
 
-## How isolation works
+## How Claude resolves its config dir
 
-Each AI runtime has one env var that redirects its config directory:
+`CLAUDE_CONFIG_DIR` is not set by Claude — it's an input contract. Claude checks for it at startup and uses whatever it finds. No helo required; you could set it manually.
 
-| Runtime | Env var | Default (no helo) |
-|---------|---------|-------------------|
-| claude | `CLAUDE_CONFIG_DIR` | `~/.claude/` |
-| pi | `PI_CODING_AGENT_DIR` | `~/.pi/` |
-| opencode | `OPENCODE_CONFIG` | `~/.opencode/` |
+```mermaid
+flowchart TD
+    START["claude launched"]
+    CHECK{"CLAUDE_CONFIG_DIR\nset?"}
+    DEFAULT["use ~/.claude/"]
+    CUSTOM["use $CLAUDE_CONFIG_DIR"]
+    EXISTS{"dir exists?"}
+    CREATE["create dir\nseed settings.json\nseed CLAUDE.md if configured"]
+    RUN["run"]
 
-`helo run` sets that var to the project-local env dir, then launches the binary:
-
-```bash
-# what helo run does under the hood
-export CLAUDE_CONFIG_DIR=/your/project/.claude-env-claude1
-claude
+    START --> CHECK
+    CHECK -->|no| DEFAULT
+    CHECK -->|yes| CUSTOM
+    DEFAULT --> EXISTS
+    CUSTOM --> EXISTS
+    EXISTS -->|no| CREATE --> RUN
+    EXISTS -->|yes| RUN
 ```
 
-Settings, sessions, memory, CLAUDE.md — everything Claude reads and writes goes into `.claude-env-claude1/`. The global `~/.claude/` is never touched.
+If not set: falls back to `~/.claude/` — not an error. That's the problem without helo: every claude invocation on your machine shares that one directory.
+
+## The env var as a contract
+
+`CLAUDE_CONFIG_DIR` has nothing to do with your system. It's just an agreement between you and the claude binary: "if you see this var, use that path."
+
+Same pattern everywhere in Unix:
+
+```bash
+EDITOR=vim git commit           # tell git which editor to open
+DEBUG=1 node app.js             # tell node to enable debug output
+CLAUDE_CONFIG_DIR=... claude    # tell claude where its config lives
+```
+
+The program doesn't own the variable. It only reads it. You provide it. helo automates the providing.
+
+## Env var lifetime
+
+`CLAUDE_CONFIG_DIR` is injected per-process. It does not persist in your shell, registry, or anywhere on disk. It lives only for the duration of the claude subprocess helo spawns.
+
+```mermaid
+sequenceDiagram
+    participant Shell
+    participant helo
+    participant claude
+
+    Shell->>helo: helo run claude1
+    helo->>helo: look up blueprint → compute env dir path
+    helo->>claude: spawn with CLAUDE_CONFIG_DIR=.claude-env-claude1
+    Note over claude: reads/writes .claude-env-claude1/
+    claude-->>helo: exits
+    helo-->>Shell: returns
+    Note over Shell: CLAUDE_CONFIG_DIR never set here
+```
+
+The **persistence** is the env dir on disk — `.claude-env-claude1/` stays between runs. The var is re-injected fresh each time.
 
 ## Binary vs config isolation
 
@@ -75,6 +115,24 @@ flowchart TB
 ```
 
 Upgrade `claude` once — all envs get the new version. Each env keeps its own independent state.
+
+## The problem without helo
+
+```mermaid
+flowchart TD
+    subgraph nogood["without helo — shared global dir"]
+        C1["claude session\nagent1"] -->|writes| GD["~/.claude/\nsettings · memory · sessions"]
+        C2["claude session\nagent2"] -->|overwrites| GD
+        C3["claude session\nagent3"] -->|overwrites| GD
+        GD --> CONFLICT["💥 settings conflict\nmemory bleeds\nidentities mix"]
+    end
+
+    subgraph good["with helo — isolated dirs"]
+        H1["helo run agent1"] -->|CLAUDE_CONFIG_DIR| E1[".claude-env-agent1/"]
+        H2["helo run agent2"] -->|CLAUDE_CONFIG_DIR| E2[".claude-env-agent2/"]
+        H3["helo run agent3"] -->|CLAUDE_CONFIG_DIR| E3[".claude-env-agent3/"]
+    end
+```
 
 ## Without helo
 

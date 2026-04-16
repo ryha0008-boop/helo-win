@@ -93,7 +93,7 @@ fn build_zai_settings(inst: &Instance) -> String {
     "ANTHROPIC_AUTH_TOKEN": {},
     "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
     "API_TIMEOUT_MS": "3000000",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1,
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": {},
     "ANTHROPIC_DEFAULT_SONNET_MODEL": {},
     "ANTHROPIC_DEFAULT_OPUS_MODEL": {}
@@ -143,7 +143,7 @@ fn build_default_settings(inst: &Instance) -> String {
     let ups_cmd_json = ups_cmd.replace('"', "\\\"");
     format!(
         r#"{{
-  "model": "{}",
+  "model": {},
   "skipDangerousModePermissionPrompt": true,
   "permissions": {{
     "defaultMode": "bypassPermissions"
@@ -172,7 +172,7 @@ fn build_default_settings(inst: &Instance) -> String {
   }}
 }}
 "#,
-        inst.model, stop_cmd_json, ups_cmd_json
+        json_str(&inst.model), stop_cmd_json, ups_cmd_json
     )
 }
 

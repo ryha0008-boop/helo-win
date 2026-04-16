@@ -71,6 +71,26 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Edit an existing blueprint's fields
+    Edit {
+        /// Blueprint name to edit
+        name: String,
+        /// New runtime
+        #[arg(long)]
+        runtime: Option<String>,
+        /// New provider
+        #[arg(long)]
+        provider: Option<String>,
+        /// New model
+        #[arg(long)]
+        model: Option<String>,
+        /// New API key (pass "" to clear)
+        #[arg(long)]
+        api_key: Option<Option<String>>,
+        /// New CLAUDE.md template path (pass "" to clear)
+        #[arg(long)]
+        claude_md: Option<Option<String>>,
+    },
     /// Remove a blueprint by name
     Remove {
         name: String,
@@ -226,6 +246,7 @@ fn run_command(command: Commands) -> Result<()> {
         Commands::Init => cmd_init(),
         Commands::Add { name, runtime, provider, model, api_key, claude_md } => cmd_add(name, runtime, provider, model, api_key, claude_md),
         Commands::List { json } => cmd_list(json),
+        Commands::Edit { name, runtime, provider, model, api_key, claude_md } => cmd_edit(name, runtime, provider, model, api_key, claude_md),
         Commands::Remove { name } => cmd_remove(name),
         Commands::Key { name, key } => cmd_key(name, key),
         Commands::Run { name, resume, prompt, extra } => cmd_run(name, resume, prompt, extra),
@@ -351,6 +372,51 @@ fn cmd_list(json: bool) -> Result<()> {
             .unwrap_or("-");
         println!("{:<20} {:<10} {:<15} {:<30} {}", b.name, b.runtime, b.provider, b.model, md);
     }
+    Ok(())
+}
+
+fn cmd_edit(name: String, runtime: Option<String>, provider: Option<String>, model: Option<String>, api_key: Option<Option<String>>, claude_md: Option<Option<String>>) -> Result<()> {
+    let mut cfg = config::load()?;
+    let bp = cfg.blueprints.iter_mut()
+        .find(|b| b.name == name)
+        .with_context(|| format!("no blueprint named '{name}'. Run: helo list"))?;
+
+    let mut changed = false;
+    if let Some(v) = runtime { bp.runtime = v; changed = true; }
+    if let Some(v) = provider { bp.provider = v; changed = true; }
+    if let Some(v) = model { bp.model = v; changed = true; }
+    if let Some(key_opt) = api_key {
+        match key_opt {
+            Some(k) if !k.is_empty() => { bp.api_key = Some(k); }
+            _ => { bp.api_key = None; }
+        }
+        changed = true;
+    }
+    if let Some(md_opt) = claude_md {
+        match md_opt {
+            Some(p) if !p.is_empty() => { bp.claude_md = Some(p); }
+            _ => { bp.claude_md = None; }
+        }
+        changed = true;
+    }
+
+    if !changed {
+        // No flags — show current config
+        println!("Blueprint: {}", bp.name);
+        println!("  runtime:   {}", bp.runtime);
+        println!("  provider:  {}", bp.provider);
+        println!("  model:     {}", bp.model);
+        println!("  api_key:   {}", if bp.api_key.is_some() { "set" } else { "not set" });
+        println!("  claude_md: {}", bp.claude_md.as_deref().unwrap_or("-"));
+        println!();
+        println!("Edit with: helo edit {} --model <new-model>", bp.name);
+        return Ok(());
+    }
+
+    let summary = format!("{} / {} / {}", bp.runtime, bp.provider, bp.model);
+    let name = bp.name.clone();
+    config::save(&cfg)?;
+    println!("Updated '{}' — now: {}", name, summary);
     Ok(())
 }
 
@@ -1128,6 +1194,7 @@ fn run_interactive() -> Result<()> {
         }
         println!();
         println!("  a  add blueprint     d  delete blueprint");
+        println!("  e  edit blueprint");
         println!("  k  set api key       g  global keys");
         println!("  s  status            c  clean runtime");
         println!("  t  templates         x  defaults");
@@ -1163,6 +1230,13 @@ fn run_interactive() -> Result<()> {
                 if cfg.blueprints.is_empty() {
                     println!("No blueprints to delete.");
                 } else if let Err(e) = interactive_delete() {
+                    println!("error: {e:#}");
+                }
+            }
+            "e" => {
+                if cfg.blueprints.is_empty() {
+                    println!("No blueprints to edit.");
+                } else if let Err(e) = interactive_edit() {
                     println!("error: {e:#}");
                 }
             }
@@ -1273,6 +1347,45 @@ fn interactive_set_key() -> Result<()> {
     let name = cfg.blueprints[n - 1].name.clone();
     let key = iread(&format!("Key for '{name}' [blank=clear]: "))?;
     cmd_key(name, key)
+}
+
+fn interactive_edit() -> Result<()> {
+    let cfg = config::load()?;
+    println!("Edit blueprint:");
+    for (i, b) in cfg.blueprints.iter().enumerate() {
+        let key = if b.api_key.is_some() { " [key]" } else { "" };
+        println!("  {}  {}  ({} / {} / {}{})", i + 1, b.name, b.runtime, b.provider, b.model, key);
+    }
+    let input = iread("Number [blank=cancel]: ")?;
+    if input.is_empty() { return Ok(()); }
+    let n: usize = input.parse().context("enter a number")?;
+    if n < 1 || n > cfg.blueprints.len() { bail!("no blueprint #{n}"); }
+    let bp = &cfg.blueprints[n - 1];
+
+    println!();
+    println!("Editing: {} (current: {} / {} / {})", bp.name, bp.runtime, bp.provider, bp.model);
+    println!("  (blank = keep current value)");
+    println!();
+
+    let runtime = iread(&format!("Runtime [{}]: ", bp.runtime))?;
+    let runtime = if runtime.is_empty() { None } else { Some(runtime) };
+
+    let provider = iread(&format!("Provider [{}]: ", bp.provider))?;
+    let provider = if provider.is_empty() { None } else { Some(provider) };
+
+    let model = iread(&format!("Model [{}]: ", bp.model))?;
+    let model = if model.is_empty() { None } else { Some(model) };
+
+    let key_input = iread("API key [blank=keep, 'clear'=remove]: ")?;
+    let api_key = if key_input.is_empty() {
+        None
+    } else if key_input == "clear" {
+        Some(None)
+    } else {
+        Some(Some(key_input))
+    };
+
+    cmd_edit(bp.name.clone(), runtime, provider, model, api_key, None)
 }
 
 fn interactive_delete() -> Result<()> {

@@ -63,6 +63,7 @@ helo add <name> --runtime claude --provider anthropic --model sonnet [--claude-m
 helo list [--json]                            # list blueprints
 helo run [name] [--resume [id]] [-p <prompt>] [-- extra args]
 helo remove <name>
+helo edit <name> [--runtime <r>] [--provider <p>] [--model <m>] [--api-key <key>] [--claude-md <path>]
 helo clean [name] [--global] [--yes]          # remove instance env dirs (or global dirs with --global)
 helo status [--json]
 helo key <name> <key>                         # set/update api_key for an existing blueprint
@@ -236,6 +237,7 @@ Menu shows current blueprints by number. Type number to run, letter for actions:
 |-----|--------|
 | 1–N | Run blueprint N (prompts: project dir, resume?, prompt?, extra args) |
 | a | Add blueprint (guided prompts for all fields) |
+| e | Edit blueprint (change runtime/provider/model/key) |
 | k | Set/update API key for a blueprint |
 | g | Global keys (set/remove/list) |
 | d | Delete blueprint (pick by number, confirm) |

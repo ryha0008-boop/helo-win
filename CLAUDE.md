@@ -106,6 +106,7 @@ helo runtime install <runtime>                # install a runtime (claude/pi/ope
 helo runtime uninstall <runtime>              # uninstall a runtime
 helo runtime list                             # show installed runtimes and versions
 helo update                                   # self-update
+helo sessions [name]                          # list conversation sessions (id, date, size)
 ```
 
 `--claude-md <path>` — path to a CLAUDE.md template. On first `helo run`, the file is copied into the env dir (which is `CLAUDE_CONFIG_DIR` for Claude). Claude reads this as its global instructions, giving the agent its role/persona. The path is stored in the blueprint; the file is only read at placement time.

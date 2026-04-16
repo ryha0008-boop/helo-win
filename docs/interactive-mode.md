@@ -16,10 +16,11 @@ helo run   # CLI (non-interactive)
   2  zai-agent  (claude / zai / glm-5.1)
 
   a  add blueprint     e  edit blueprint
-  d  delete blueprint  k  set api key
-  g  global keys       s  status
-  t  templates         c  clean runtime
-  x  defaults          q  quit
+  d  delete blueprint  h  sessions (history)
+  k  set api key       g  global keys
+  s  status            c  clean runtime
+  t  templates         x  defaults
+  q  quit
 
 number to run, or letter:
 ```
@@ -32,6 +33,7 @@ number to run, or letter:
 | `a` | Add a blueprint (guided prompts) |
 | `e` | Edit a blueprint (change runtime/provider/model/key/claude-md) |
 | `d` | Delete a blueprint (pick by number, confirm) |
+| `h` | Sessions — list conversation history for the current project |
 | `k` | Set/update API key for a blueprint |
 | `g` | Global keys submenu (`set`, `remove`, `list`) |
 | `s` | Status (config path + API key presence) |

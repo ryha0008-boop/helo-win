@@ -7,6 +7,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- `helo sessions [name]` — list conversation sessions for a blueprint in the current project (session ID, modified date UTC, size); `h` key in interactive mode
+
 ## [0.1.5] — 2026-04-16
 
 ### Added

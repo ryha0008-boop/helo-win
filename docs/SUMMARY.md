@@ -20,6 +20,7 @@
   * [runtime](commands/runtime.md)
   * [completion](commands/completion.md)
   * [update](commands/update.md)
+  * [sessions](commands/sessions.md)
 * [Configuration](configuration.md)
 * [Runtimes](runtimes.md)
 * [Hooks](hooks.md)

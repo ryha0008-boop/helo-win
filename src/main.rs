@@ -161,6 +161,11 @@ enum Commands {
         #[command(subcommand)]
         sub: RuntimeCommands,
     },
+    /// List conversation sessions for a blueprint in the current project
+    Sessions {
+        /// Blueprint name (omit if only one instance exists in the current directory)
+        name: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -282,6 +287,7 @@ fn run_command(command: Commands) -> Result<()> {
             RuntimeCommands::Uninstall { runtime } => cmd_runtime_uninstall(&runtime),
             RuntimeCommands::List => cmd_runtime_list(),
         },
+        Commands::Sessions { name } => cmd_sessions(name),
     }
 }
 
@@ -1276,6 +1282,93 @@ fn cmd_status(json: bool) -> Result<()> {
     Ok(())
 }
 
+// ── Sessions ─────────────────────────────────────────────────────────────────
+
+/// Encode an absolute path to Claude's project-dir naming convention:
+/// replace each `\`, `/`, and `:` with `-`.
+fn encode_project_path(path: &std::path::Path) -> String {
+    path.to_string_lossy()
+        .chars()
+        .map(|c| if matches!(c, '\\' | '/' | ':') { '-' } else { c })
+        .collect()
+}
+
+/// Format a SystemTime as "YYYY-MM-DD HH:MM" (UTC).
+fn format_utc(t: std::time::SystemTime) -> String {
+    let secs = t.duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0) as i64;
+    let days = secs / 86400;
+    let rem  = secs % 86400;
+    let h = rem / 3600;
+    let m = (rem % 3600) / 60;
+
+    // Gregorian calendar from days-since-epoch (Howarth algorithm)
+    let z   = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y   = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp  = (5 * doy + 2) / 153;
+    let d   = doy - (153 * mp + 2) / 5 + 1;
+    let mo  = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y   = if mo <= 2 { y + 1 } else { y };
+
+    format!("{:04}-{:02}-{:02} {:02}:{:02}", y, mo, d, h, m)
+}
+
+fn cmd_sessions(name: Option<String>) -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let instances = project::find_instances(&cwd);
+
+    let env_dir = if let Some(n) = name {
+        instances.into_iter()
+            .find(|(_, inst)| inst.name == n)
+            .map(|(dir, _)| dir)
+            .with_context(|| format!("no instance named '{n}' in current directory"))?
+    } else if instances.len() == 1 {
+        instances.into_iter().next().unwrap().0
+    } else if instances.is_empty() {
+        bail!("no instances in current directory");
+    } else {
+        bail!("multiple instances — specify: helo sessions <name>");
+    };
+
+    let sessions_dir = env_dir.join("projects").join(encode_project_path(&cwd));
+
+    if !sessions_dir.exists() {
+        println!("No sessions yet.");
+        return Ok(());
+    }
+
+    let mut sessions: Vec<(String, std::time::SystemTime, u64)> = vec![];
+    for entry in std::fs::read_dir(&sessions_dir)?.flatten() {
+        let path = entry.path();
+        if path.is_dir() { continue; }
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") { continue; }
+        let fname = path.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+        let meta  = std::fs::metadata(&path)?;
+        let mtime = meta.modified().unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        sessions.push((fname, mtime, meta.len()));
+    }
+
+    if sessions.is_empty() {
+        println!("No sessions yet.");
+        return Ok(());
+    }
+
+    sessions.sort_by(|a, b| b.1.cmp(&a.1));
+
+    println!("{:<38}  {:<16}  {:>8}", "SESSION", "MODIFIED (UTC)", "SIZE");
+    println!("{}", "-".repeat(68));
+    for (id, mtime, size) in sessions {
+        let size_kb = (size + 1023) / 1024;
+        println!("{:<38}  {:<16}  {:>5} KB", id, format_utc(mtime), size_kb);
+    }
+    Ok(())
+}
+
 // ── Interactive mode ─────────────────────────────────────────────────────────
 
 fn iread(prompt_str: &str) -> Result<String> {
@@ -1316,7 +1409,7 @@ fn run_interactive() -> Result<()> {
         }
         println!();
         println!("  a  add blueprint     d  delete blueprint");
-        println!("  e  edit blueprint");
+        println!("  e  edit blueprint    h  sessions (history)");
         println!("  k  set api key       g  global keys");
         println!("  s  status            c  clean runtime");
         println!("  t  templates         x  defaults");
@@ -1362,6 +1455,7 @@ fn run_interactive() -> Result<()> {
                     println!("error: {e:#}");
                 }
             }
+            "h" => { if let Err(e) = cmd_sessions(None)        { println!("error: {e:#}"); } }
             "s" => { if let Err(e) = cmd_status(false)        { println!("error: {e:#}"); } }
             "g" => { if let Err(e) = interactive_keys()       { println!("error: {e:#}"); } }
             "t" => { if let Err(e) = interactive_templates()  { println!("error: {e:#}"); } }

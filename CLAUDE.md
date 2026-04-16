@@ -16,6 +16,8 @@ Isolated AI agent environments — like Python venvs but for AI runtimes (Claude
 
 Asset naming: `helo-x86_64-windows.exe`, `helo-x86_64-linux`, `helo-aarch64-macos`, `helo-x86_64-macos`
 
+Both macOS builds run on `macos-latest` (ARM) — aarch64 natively, x86_64 via cross-compilation. `macos-13` runner label is no longer supported by GitHub.
+
 Linux/macOS compat is solid — all platform-specific logic is `#[cfg]`-guarded. `directories` crate handles config paths per OS. `Path::join()` used throughout (no hardcoded separators).
 
 ## Development rules

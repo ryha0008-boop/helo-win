@@ -30,7 +30,7 @@ jobs:
             asset: helo-aarch64-macos
             binary: target/aarch64-apple-darwin/release/helo
 
-          - os: macos-13
+          - os: macos-latest
             target: x86_64-apple-darwin
             asset: helo-x86_64-macos
             binary: target/x86_64-apple-darwin/release/helo

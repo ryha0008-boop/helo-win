@@ -143,6 +143,12 @@ Two-hook pattern enforces CLAUDE.md updates after code commits.
 
 Both hooks live in `.claude/settings.json` (project-level) and are seeded into new Claude env `settings.json` by `save_instance`. Stop doesn't support `hookSpecificOutput.additionalContext` — hence the two-hook pattern.
 
+## Windows notes
+
+**Git Bash / sh on PATH:** hooks in `settings.json` use POSIX shell syntax. helo auto-detects Git for Windows at `C:\Program Files\Git\usr\bin` and injects it into PATH before spawning Claude Code. If Git is installed elsewhere and sh is not found, install Git for Windows or add its `usr\bin` to PATH.
+
+**ANTHROPIC_API_KEY env var:** if set in your Windows environment, ZAI blueprints clear it before launch (they use `ANTHROPIC_AUTH_TOKEN` instead). Without this, Claude Code prompts "detected custom API key". Non-ZAI blueprints that have a stored key override it via `ANTHROPIC_API_KEY`; non-ZAI blueprints with no stored key inherit it (intentional — lets you rely on system key).
+
 ## z.ai provider
 
 `helo add <name> --runtime claude --provider zai --model glm-5.1 --api-key <key>`

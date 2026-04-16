@@ -856,7 +856,8 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, prompt: Option<
 fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env_dir: &Path, resume: Option<&Option<String>>, extra: &[String]) -> Result<i32> {
     #[cfg(windows)]
     {
-        // Hooks use POSIX commands (sh, $(), test) — require Git Bash on PATH
+        // Hooks use POSIX commands (sh, $(), test) — require Git Bash on PATH.
+        // If sh is not found, try known Git for Windows locations and inject into PATH.
         if runtime == "claude" && env_dir.join("settings.json").exists() {
             let has_sh = std::process::Command::new("sh")
                 .arg("--version")
@@ -864,7 +865,20 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
                 .map(|o| o.status.success())
                 .unwrap_or(false);
             if !has_sh {
-                eprintln!("warning: hooks use POSIX shell commands. Install Git Bash and ensure 'sh' is on PATH.");
+                let candidates = [
+                    r"C:\Program Files\Git\usr\bin",
+                    r"C:\Program Files (x86)\Git\usr\bin",
+                ];
+                let found = candidates.iter().find(|p| std::path::Path::new(p).join("sh.exe").exists());
+                match found {
+                    Some(git_bin) => {
+                        let current = std::env::var("PATH").unwrap_or_default();
+                        std::env::set_var("PATH", format!("{};{}", git_bin, current));
+                    }
+                    None => {
+                        eprintln!("warning: hooks use POSIX shell commands. Install Git Bash and ensure 'sh' is on PATH.");
+                    }
+                }
             }
         }
     }
@@ -884,6 +898,9 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
                     if !key.is_empty() {
                         c.env("ANTHROPIC_AUTH_TOKEN", &key);
                     }
+                    // Clear any inherited ANTHROPIC_API_KEY — ZAI uses AUTH_TOKEN, and an
+                    // inherited key causes Claude Code to prompt "detected custom API key".
+                    c.env_remove("ANTHROPIC_API_KEY");
                     c.env("ANTHROPIC_DEFAULT_HAIKU_MODEL", model);
                     c.env("ANTHROPIC_DEFAULT_SONNET_MODEL", model);
                     c.env("ANTHROPIC_DEFAULT_OPUS_MODEL", model);

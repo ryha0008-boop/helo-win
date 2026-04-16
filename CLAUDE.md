@@ -6,7 +6,7 @@ Isolated AI agent environments — like Python venvs but for AI runtimes (Claude
 
 - `README.md` — user-facing: install (step-by-step for Windows/Linux/macOS), concepts, quick start, command reference. Keep in sync with new commands.
 - `CHANGELOG.md` — version history. Every user-facing change gets an entry under `[Unreleased]` in the same commit.
-- `docs/` — GitBook documentation. Keep in sync with new commands and behaviour changes. Key files: `commands/README.md` (command reference), `interactive-mode.md`, `installation.md`, `providers.md`, `clean.md`.
+- `docs/` — GitBook documentation. Keep in sync with new commands and behaviour changes. Key files: `concepts.md` (core isolation model), `commands/README.md` (command reference), `interactive-mode.md`, `installation.md`, `providers.md`, `clean.md`.
 
 ## Release process
 

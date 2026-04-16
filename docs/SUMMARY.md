@@ -1,6 +1,7 @@
 # Table of contents
 
 * [Overview](README.md)
+* [Concepts](concepts.md)
 * [Quick Start](quick-start.md)
 * [Installation](installation.md)
 * [Commands](commands/README.md)

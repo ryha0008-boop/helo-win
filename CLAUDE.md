@@ -241,7 +241,7 @@ helo       # interactive
 helo run   # CLI as before
 ```
 
-Menu shows current blueprints by number. Type number to run, letter for actions:
+Menu header shows the current helo version and redraws on every loop iteration. Blueprint list and actions below it:
 
 | Key | Action |
 |-----|--------|

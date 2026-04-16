@@ -8,6 +8,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `README.md` — install instructions, concepts, quick start, full command reference
 - `helo edit <name>` — edit blueprint fields (runtime/provider/model/api-key/claude-md) without recreating it; no-flag invocation shows current config
 - `helo init` — guided first-time setup wizard (install runtimes, set API keys, create first blueprint)
 - `helo runtime install/uninstall/list` — install and manage AI runtimes from within helo

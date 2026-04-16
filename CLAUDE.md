@@ -4,8 +4,17 @@ Isolated AI agent environments — like Python venvs but for AI runtimes (Claude
 
 ## Docs
 
-- `README.md` — user-facing: install (with step-by-step Windows PATH setup), concepts, quick start, command reference. Keep in sync with new commands.
+- `README.md` — user-facing: install (step-by-step for Windows/Linux/macOS), concepts, quick start, command reference. Keep in sync with new commands.
 - `CHANGELOG.md` — version history. Every user-facing change gets an entry under `[Unreleased]` in the same commit.
+
+## Release process
+
+1. Update `[Unreleased]` → `[x.y.z] — YYYY-MM-DD` in CHANGELOG.md
+2. Bump `version` in Cargo.toml
+3. Commit, push, tag (`git tag vx.y.z && git push origin vx.y.z`)
+4. GitHub Actions builds all four platform binaries and attaches them to the release automatically
+
+Asset naming: `helo-x86_64-windows.exe`, `helo-x86_64-linux`, `helo-aarch64-macos`, `helo-x86_64-macos`
 
 ## Development rules
 

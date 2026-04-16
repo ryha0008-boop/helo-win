@@ -791,12 +791,29 @@ fn cmd_update() -> Result<()> {
     }
     println!("v{tag} available.");
 
-    // Find a .exe asset in the release
+    // Find the asset for this platform.
+    // Naming convention: helo-<arch>-<os>[.exe]
+    // Falls back to bare .exe for older releases that predated multi-platform builds.
+    let expected = match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("windows", "x86_64")  => "helo-x86_64-windows.exe",
+        ("linux",   "x86_64")  => "helo-x86_64-linux",
+        ("macos",   "aarch64") => "helo-aarch64-macos",
+        ("macos",   "x86_64")  => "helo-x86_64-macos",
+        (os, arch)             => return Err(anyhow::anyhow!("no pre-built binary for {arch}-{os} — build from source: cargo install --git {RELEASES_PAGE}")),
+    };
     let empty = vec![];
     let assets = release["assets"].as_array().unwrap_or(&empty);
     let asset = assets.iter()
-        .find(|a| a["name"].as_str().map(|n| n.ends_with(".exe")).unwrap_or(false))
-        .with_context(|| format!("no .exe asset in release v{tag} — download from: {RELEASES_PAGE}"))?;
+        .find(|a| a["name"].as_str() == Some(expected))
+        .or_else(|| {
+            // Fallback: older Windows releases used bare helo.exe
+            if cfg!(windows) {
+                assets.iter().find(|a| a["name"].as_str().map(|n| n.ends_with(".exe")).unwrap_or(false))
+            } else {
+                None
+            }
+        })
+        .with_context(|| format!("no binary for this platform in release v{tag} — download from: {RELEASES_PAGE}"))?;
 
     let url = asset["browser_download_url"].as_str().context("missing download URL")?;
     let name = asset["name"].as_str().unwrap_or("helo.exe");

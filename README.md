@@ -16,43 +16,59 @@ Every AI runtime dumps its config into a single global directory. Run two agents
 
 ## Install
 
-**1. Download** `helo.exe` from the [releases page](https://github.com/ryha0008-boop/helo-win/releases/latest).
+Download the binary for your platform from the [releases page](https://github.com/ryha0008-boop/helo-win/releases/latest):
 
-**2. Put it on your PATH** — PATH is the list of folders Windows searches when you type a command. Pick one of these options:
+| Platform | File |
+|----------|------|
+| Windows x64 | `helo-x86_64-windows.exe` |
+| Linux x64 | `helo-x86_64-linux` |
+| macOS Apple Silicon | `helo-aarch64-macos` |
+| macOS Intel | `helo-x86_64-macos` |
+
+Then follow the setup for your OS:
 
 <details>
-<summary>Option A — create a personal bin folder (recommended)</summary>
+<summary>Windows</summary>
 
 Open PowerShell and run:
 
 ```powershell
-# Create the folder
+# Create a personal bin folder and add it to PATH (one-time setup)
 New-Item -ItemType Directory -Force "$HOME\bin"
-
-# Move helo.exe there
-Move-Item "$HOME\Downloads\helo.exe" "$HOME\bin\helo.exe"
-
-# Add the folder to your PATH permanently
 $path = [Environment]::GetEnvironmentVariable("PATH", "User")
 if ($path -notlike "*$HOME\bin*") {
     [Environment]::SetEnvironmentVariable("PATH", "$HOME\bin;$path", "User")
 }
+
+# Move the downloaded binary there
+Move-Item "$HOME\Downloads\helo-x86_64-windows.exe" "$HOME\bin\helo.exe"
 ```
 
-Close and reopen your terminal for the PATH change to take effect.
+Close and reopen your terminal, then run `helo init`.
 </details>
 
 <details>
-<summary>Option B — place it in an existing folder</summary>
+<summary>Linux / macOS</summary>
 
-If you already have a folder on your PATH (e.g. `C:\Windows\System32`, though that's not recommended), you can copy `helo.exe` there directly. To see your current PATH folders:
+```bash
+# Move to a folder on your PATH
+mv helo-x86_64-linux ~/.local/bin/helo        # Linux
+mv helo-aarch64-macos ~/.local/bin/helo       # macOS Apple Silicon
+mv helo-x86_64-macos ~/.local/bin/helo        # macOS Intel
 
-```powershell
-$env:PATH -split ";"
+# Make it executable
+chmod +x ~/.local/bin/helo
+
+# If ~/.local/bin isn't on your PATH yet:
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc   # bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc    # zsh
+source ~/.bashrc  # or ~/.zshrc
 ```
+
+Then run `helo init`.
 </details>
 
-**3. Run first-time setup:**
+**First-time setup:**
 
 ```
 helo init

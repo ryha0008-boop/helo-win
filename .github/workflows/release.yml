@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: helo-x86_64-windows.exe
+            binary: target/x86_64-pc-windows-msvc/release/helo.exe
+
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset: helo-x86_64-linux
+            binary: target/x86_64-unknown-linux-musl/release/helo
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset: helo-aarch64-macos
+            binary: target/aarch64-apple-darwin/release/helo
+
+          - os: macos-13
+            target: x86_64-apple-darwin
+            asset: helo-x86_64-macos
+            binary: target/x86_64-apple-darwin/release/helo
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get install -y musl-tools
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Stage asset
+        shell: bash
+        run: cp ${{ matrix.binary }} ${{ matrix.asset }}
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset }}
+          generate_release_notes: false

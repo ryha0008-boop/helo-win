@@ -7,6 +7,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- GitHub Actions release workflow — pushes a tag and CI builds all four platform binaries automatically
+- Linux and macOS binaries (`helo-x86_64-linux`, `helo-aarch64-macos`, `helo-x86_64-macos`)
+- README: Linux/macOS install instructions
+- CLAUDE.md: release process documented
+
+### Fixed
+- `helo update` hardcoded `.exe` asset search — now selects the correct binary for the current platform
+
 ## [0.1.4] — 2026-04-16
 
 ### Added

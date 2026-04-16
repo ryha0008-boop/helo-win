@@ -16,9 +16,43 @@ Every AI runtime dumps its config into a single global directory. Run two agents
 
 ## Install
 
-Download the latest `helo.exe` from the [releases page](https://github.com/ryha0008-boop/helo-win/releases) and put it somewhere on your PATH.
+**1. Download** `helo.exe` from the [releases page](https://github.com/ryha0008-boop/helo-win/releases/latest).
 
-Then run first-time setup:
+**2. Put it on your PATH** — PATH is the list of folders Windows searches when you type a command. Pick one of these options:
+
+<details>
+<summary>Option A — create a personal bin folder (recommended)</summary>
+
+Open PowerShell and run:
+
+```powershell
+# Create the folder
+New-Item -ItemType Directory -Force "$HOME\bin"
+
+# Move helo.exe there
+Move-Item "$HOME\Downloads\helo.exe" "$HOME\bin\helo.exe"
+
+# Add the folder to your PATH permanently
+$path = [Environment]::GetEnvironmentVariable("PATH", "User")
+if ($path -notlike "*$HOME\bin*") {
+    [Environment]::SetEnvironmentVariable("PATH", "$HOME\bin;$path", "User")
+}
+```
+
+Close and reopen your terminal for the PATH change to take effect.
+</details>
+
+<details>
+<summary>Option B — place it in an existing folder</summary>
+
+If you already have a folder on your PATH (e.g. `C:\Windows\System32`, though that's not recommended), you can copy `helo.exe` there directly. To see your current PATH folders:
+
+```powershell
+$env:PATH -split ";"
+```
+</details>
+
+**3. Run first-time setup:**
 
 ```
 helo init

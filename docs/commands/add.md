@@ -17,7 +17,7 @@ helo add <name> --runtime <runtime> --provider <provider> --model <model> [optio
 | `--provider` | Yes | `anthropic`, `zai`, `openrouter`, `openai`, `groq`, `deepseek`, `mistral`, `gemini`, or custom |
 | `--model` | Yes | Model ID (e.g. `sonnet`, `glm-5.1`, `openai/gpt-4o`) |
 | `--api-key` | No | API key stored in blueprint. Omit to use global key or env var. |
-| `--claude-md` | No | Path to CLAUDE.md template (or built-in name: `coding`, `assistant`, `devox`). Claude runtime only. |
+| `--claude-md` | No | Path to CLAUDE.md template (or built-in name: `coding`, `assistant`, `devops`). Claude runtime only. |
 
 ## API key priority
 

@@ -4,21 +4,24 @@ Get running in under a minute.
 
 ## 1. Install
 
+Download the pre-built binary from [GitHub Releases](https://github.com/ryha0008-boop/helo-win/releases/latest) and put it somewhere in your PATH.
+
+Or build from source:
 ```bash
-# Build from source (requires Rust)
 git clone https://github.com/ryha0008-boop/helo-win.git
 cd helo-win
-cargo build --release
-
-# Install to PATH
 cargo install --path .
 ```
 
-Or copy the pre-built binary:
+See [Installation](installation.md) for full platform-specific setup (including Windows PATH steps).
+
+## 1b. (Optional) First-time wizard
+
 ```bash
-chmod +x helo
-sudo cp helo /usr/local/bin/
+helo init
 ```
+
+Guides you through installing runtimes, setting API keys, and creating your first blueprint. Skip ahead to step 2 if you prefer doing it manually.
 
 ## 2. Add a blueprint
 

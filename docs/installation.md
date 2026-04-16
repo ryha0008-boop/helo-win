@@ -1,58 +1,81 @@
 # Installation
 
+## Pre-built binary (recommended)
+
+Download from the [latest GitHub release](https://github.com/ryha0008-boop/helo-win/releases/latest).
+
+| Platform | Asset |
+|----------|-------|
+| Windows x86_64 | `helo-x86_64-windows.exe` |
+| Linux x86_64 | `helo-x86_64-linux` |
+| macOS ARM (M1/M2/M3) | `helo-aarch64-macos` |
+| macOS Intel | `helo-x86_64-macos` |
+
+### Windows
+
+1. Download `helo-x86_64-windows.exe`
+2. Rename it to `helo.exe`
+3. Move it to a folder in your PATH (e.g. `C:\Users\<you>\bin\`)
+4. If that folder isn't in PATH yet:
+   - Open **Start** → search "Environment Variables" → click **Edit the system environment variables**
+   - Click **Environment Variables…**
+   - Under **User variables**, select **Path** → **Edit** → **New**
+   - Add the folder path (e.g. `C:\Users\<you>\bin`)
+   - Click OK on all dialogs
+   - Restart your terminal
+5. Verify: `helo --version`
+
+### Linux / macOS
+
+```bash
+# Download and install
+chmod +x helo-x86_64-linux   # or helo-aarch64-macos / helo-x86_64-macos
+sudo cp helo-x86_64-linux /usr/local/bin/helo
+# or user-local:
+cp helo-x86_64-linux ~/.local/bin/helo
+
+helo --version
+```
+
 ## From source (all platforms)
 
-Requires [Rust](https://rustup.rs/) installed.
+Requires [Rust](https://rustup.rs/).
 
 ```bash
 git clone https://github.com/ryha0008-boop/helo-win.git
 cd helo-win
-
-# Debug build
-cargo build
-
-# Release build (recommended)
 cargo build --release
-
-# Install to ~/.cargo/bin/
 cargo install --path .
 ```
 
-The binary is self-contained — no Rust toolchain needed at runtime.
-
-## Static binary (Linux)
-
-For maximum portability across Linux distros, build a static binary:
+## Static binary (Linux, maximum portability)
 
 ```bash
 rustup target add x86_64-unknown-linux-musl
 cargo build --release --target x86_64-unknown-linux-musl
-# Binary at target/x86_64-unknown-linux-musl/release/helo
+# Binary: target/x86_64-unknown-linux-musl/release/helo
 ```
 
-This binary has no external dependencies and works on any x86_64 Linux system.
+No external dependencies — works on any x86_64 Linux system.
 
-## Pre-built binary
+## Self-update
 
-Copy the binary to anywhere in your PATH:
+Once installed, keep helo current with:
 
 ```bash
-chmod +x helo
-sudo cp helo /usr/local/bin/
-# or
-cp helo ~/.local/bin/
+helo update
 ```
+
+Downloads and replaces the binary in-place. Also updates any other copies found in PATH.
 
 ## Verify
 
 ```bash
-helo --help
+helo --version
 helo status
 ```
 
 ## Config locations
-
-helo stores its configuration using platform-standard directories (via the `directories` crate):
 
 | Platform | Config directory |
 |----------|-----------------|
@@ -60,20 +83,16 @@ helo stores its configuration using platform-standard directories (via the `dire
 | Linux | `~/.config/helo/` |
 | macOS | `~/Library/Application Support/helo/` |
 
-Override with `HELO_CONFIG_DIR` env var:
-
-```bash
-export HELO_CONFIG_DIR=/custom/config/path
-```
+Override with `HELO_CONFIG_DIR` env var.
 
 ## Prerequisites
 
-helo is a manager — it launches other AI agent runtimes. You need at least one installed:
+helo launches other AI agent runtimes — you need at least one:
 
 | Runtime | Install |
 |---------|---------|
-| claude | [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) |
-| pi | pi coding agent |
-| opencode | opencode |
+| claude | `npm install -g @anthropic-ai/claude-code` or `helo runtime install claude` |
+| pi | `npm install -g @anthropic-ai/pi` or `helo runtime install pi` |
+| opencode | `go install github.com/opencode-ai/opencode@latest` or `helo runtime install opencode` |
 
-Make sure the runtime binary is in your `PATH`.
+Or use `helo init` — it walks you through installing runtimes and setting API keys.

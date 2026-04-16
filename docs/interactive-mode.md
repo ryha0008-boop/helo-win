@@ -10,17 +10,16 @@ helo run   # CLI (non-interactive)
 ## Menu
 
 ```
-helo — AI agent environment manager  (q to quit)
+── helo v0.1.5 ────────────────────────────────
 
-─────────────────────────────────────────────
   1  dev-agent  (claude / anthropic / sonnet [coding])
   2  zai-agent  (claude / zai / glm-5.1)
 
-  a  add blueprint     d  delete blueprint
-  k  set api key       g  global keys
-  s  status            c  clean runtime
-  t  templates         x  defaults
-  q  quit
+  a  add blueprint     e  edit blueprint
+  d  delete blueprint  k  set api key
+  g  global keys       s  status
+  t  templates         c  clean runtime
+  x  defaults          q  quit
 
 number to run, or letter:
 ```
@@ -31,6 +30,7 @@ number to run, or letter:
 |-----|--------|
 | `1`–`N` | Run blueprint N. Prompts for project dir, resume option, and extra args. |
 | `a` | Add a blueprint (guided prompts) |
+| `e` | Edit a blueprint (change runtime/provider/model/key/claude-md) |
 | `d` | Delete a blueprint (pick by number, confirm) |
 | `k` | Set/update API key for a blueprint |
 | `g` | Global keys submenu (`set`, `remove`, `list`) |

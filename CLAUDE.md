@@ -228,6 +228,8 @@ helo update    # updates via cargo install --path .
 
 Requires `cargo` on PATH. Otherwise prints download URL.
 
+On Windows, after a successful install, auto-copies the new binary to `C:\Users\H\bin\helo.exe` if that file already exists (PATH shadow fix).
+
 ## Interactive mode
 
 `helo` with no arguments enters interactive mode — a menu-driven loop covering all functionality.

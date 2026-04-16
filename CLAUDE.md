@@ -2,6 +2,11 @@
 
 Isolated AI agent environments — like Python venvs but for AI runtimes (Claude, pi, opencode). Cross-platform: Windows, Linux, macOS.
 
+## Development rules
+
+- **Every user-facing change gets a CHANGELOG.md entry** under `[Unreleased]` in the same commit as the code. No exceptions — if it's worth committing, it's worth logging.
+- When tagging a release: move `[Unreleased]` to `[x.y.z] — YYYY-MM-DD` and bump `version` in `Cargo.toml`.
+
 ## Architecture
 
 **Blueprints** — global AI identities stored in helo's config (`config.toml` via `directories::ProjectDirs`). Fields: `name`, `runtime`, `provider`, `model`.

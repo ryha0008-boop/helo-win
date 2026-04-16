@@ -4,7 +4,7 @@ Isolated AI agent environments — like Python venvs but for AI runtimes (Claude
 
 ## Docs
 
-- `README.md` — user-facing: install, concepts, quick start, command reference. Keep in sync with new commands.
+- `README.md` — user-facing: install (with step-by-step Windows PATH setup), concepts, quick start, command reference. Keep in sync with new commands.
 - `CHANGELOG.md` — version history. Every user-facing change gets an entry under `[Unreleased]` in the same commit.
 
 ## Development rules

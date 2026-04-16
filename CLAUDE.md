@@ -223,12 +223,14 @@ helo completion powershell # PowerShell
 ## Self-update
 
 ```
-helo update    # updates via cargo install --path .
+helo update    # checks GitHub releases, downloads and installs latest binary
 ```
 
-Requires `cargo` on PATH. Otherwise prints download URL.
+Fetches `https://github.com/ryha0008-boop/helo-win/releases/latest` via GitHub API, compares with current version, downloads the `.exe` asset, and replaces the running binary in-place.
 
-On Windows, after a successful install, auto-copies the new binary to `C:\Users\H\bin\helo.exe` if that file already exists (PATH shadow fix).
+On Windows: renames the current exe to `helo.exe.old`, writes new binary, then removes `.exe.old` on next launch. Also updates any other copies of `helo.exe` found in PATH (so secondary locations like `C:\Users\H\bin\` stay in sync automatically).
+
+If GitHub is unreachable, prints the releases page URL.
 
 ## Interactive mode
 

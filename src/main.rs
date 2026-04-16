@@ -227,6 +227,12 @@ enum KeysCommands {
 }
 
 fn main() {
+    // Clean up old binary left behind by a previous self-update on Windows.
+    #[cfg(windows)]
+    if let Ok(exe) = std::env::current_exe() {
+        let _ = std::fs::remove_file(exe.with_extension("exe.old"));
+    }
+
     if let Err(e) = run() {
         eprintln!("error: {e:#}");
         std::process::exit(1);
@@ -747,47 +753,115 @@ fn cmd_init() -> Result<()> {
 
 // ── Self-update ─────────────────────────────────────────────────────────────
 
+const RELEASES_API: &str = "https://api.github.com/repos/ryha0008-boop/helo-win/releases/latest";
+const RELEASES_PAGE: &str = "https://github.com/ryha0008-boop/helo-win/releases";
+
 fn cmd_update() -> Result<()> {
     let current = env!("CARGO_PKG_VERSION");
     println!("helo v{current}");
+    print!("Checking for updates... ");
+    std::io::Write::flush(&mut std::io::stdout()).ok();
 
-    // Check if cargo is available
-    let has_cargo = std::process::Command::new("cargo")
-        .arg("--version")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
+    let resp = ureq::get(RELEASES_API)
+        .set("User-Agent", &format!("helo/{current}"))
+        .call();
 
-    if has_cargo {
-        println!("Updating via cargo...");
-        let status = std::process::Command::new("cargo")
-            .args(["install", "--path", "."])
-            .status()
-            .context("could not run cargo")?;
-        if status.success() {
-            println!("Updated. Re-run to use the new version.");
-            // On Windows, copy to any secondary PATH location that shadows cargo's bin.
-            #[cfg(windows)]
-            {
-                let extra = std::path::Path::new(r"C:\Users\H\bin\helo.exe");
-                if extra.exists() {
-                    let src = std::env::var("USERPROFILE").ok()
-                        .map(|h| std::path::PathBuf::from(h).join(".cargo").join("bin").join("helo.exe"));
-                    if let Some(src) = src.filter(|p| p.exists()) {
-                        if std::fs::copy(&src, extra).is_ok() {
-                            println!("Copied to {}", extra.display());
-                        }
-                    }
-                }
-            }
-        } else {
-            bail!("cargo install failed");
+    let body = match resp {
+        Ok(r) => r,
+        Err(e) => {
+            println!("failed ({e})");
+            println!("Download from: {RELEASES_PAGE}");
+            return Ok(());
         }
-    } else {
-        println!("Cargo not found. Download latest from:");
-        println!("  https://github.com/ryha0008-boop/helo-win/releases");
+    };
+
+    let release: serde_json::Value = body.into_json()
+        .context("failed to parse release JSON")?;
+
+    let tag = release["tag_name"].as_str().unwrap_or("").trim_start_matches('v');
+    if tag.is_empty() {
+        println!("no releases found.");
+        println!("Download from: {RELEASES_PAGE}");
+        return Ok(());
     }
+
+    if !version_gt(tag, current) {
+        println!("already up to date (v{current}).");
+        return Ok(());
+    }
+    println!("v{tag} available.");
+
+    // Find a .exe asset in the release
+    let empty = vec![];
+    let assets = release["assets"].as_array().unwrap_or(&empty);
+    let asset = assets.iter()
+        .find(|a| a["name"].as_str().map(|n| n.ends_with(".exe")).unwrap_or(false))
+        .with_context(|| format!("no .exe asset in release v{tag} — download from: {RELEASES_PAGE}"))?;
+
+    let url = asset["browser_download_url"].as_str().context("missing download URL")?;
+    let name = asset["name"].as_str().unwrap_or("helo.exe");
+    println!("Downloading {name}...");
+
+    let mut reader = ureq::get(url)
+        .set("User-Agent", &format!("helo/{current}"))
+        .call()
+        .context("download failed")?
+        .into_reader();
+
+    let mut buf = Vec::new();
+    std::io::Read::read_to_end(&mut reader, &mut buf).context("failed to read download")?;
+
+    let exe = std::env::current_exe().context("could not find current exe path")?;
+
+    // On Windows: rename the running exe out of the way (OS allows this), write new binary.
+    // The .exe.old file is removed on next launch.
+    #[cfg(windows)]
+    {
+        let old = exe.with_extension("exe.old");
+        let _ = std::fs::remove_file(&old);
+        std::fs::rename(&exe, &old)
+            .context("could not rename current binary — try running as administrator")?;
+        if let Err(e) = std::fs::write(&exe, &buf) {
+            let _ = std::fs::rename(&old, &exe); // restore on failure
+            return Err(e).context("failed to write new binary");
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        std::fs::write(&exe, &buf).context("failed to write new binary")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    // Also update any other copies of helo found in PATH
+    update_path_copies(&exe);
+
+    println!("Updated to v{tag}. Restart helo to use the new version.");
     Ok(())
+}
+
+/// Copies the newly installed binary to any other locations in PATH that have a helo binary.
+fn update_path_copies(installed: &std::path::Path) {
+    let Ok(path_var) = std::env::var("PATH") else { return };
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join("helo").with_extension(std::env::consts::EXE_EXTENSION);
+        if candidate.exists() && candidate != installed {
+            if std::fs::copy(installed, &candidate).is_ok() {
+                println!("Also updated {}", candidate.display());
+            }
+        }
+    }
+}
+
+fn version_gt(a: &str, b: &str) -> bool {
+    let parse = |v: &str| -> (u32, u32, u32) {
+        let mut it = v.split('.').flat_map(|p| p.parse::<u32>().ok());
+        (it.next().unwrap_or(0), it.next().unwrap_or(0), it.next().unwrap_or(0))
+    };
+    parse(a) > parse(b)
 }
 
 fn mask_key(key: &str) -> String {

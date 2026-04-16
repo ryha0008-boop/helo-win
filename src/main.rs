@@ -1284,7 +1284,7 @@ fn run_interactive() -> Result<()> {
     loop {
         let cfg = config::load()?;
         println!();
-        println!("─────────────────────────────────────────────");
+        println!("── helo v{} ──────────────────────────────────", env!("CARGO_PKG_VERSION"));
         if cfg.blueprints.is_empty() {
             println!("  (no blueprints)");
         } else {

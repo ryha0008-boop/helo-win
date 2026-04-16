@@ -766,6 +766,20 @@ fn cmd_update() -> Result<()> {
             .context("could not run cargo")?;
         if status.success() {
             println!("Updated. Re-run to use the new version.");
+            // On Windows, copy to any secondary PATH location that shadows cargo's bin.
+            #[cfg(windows)]
+            {
+                let extra = std::path::Path::new(r"C:\Users\H\bin\helo.exe");
+                if extra.exists() {
+                    let src = std::env::var("USERPROFILE").ok()
+                        .map(|h| std::path::PathBuf::from(h).join(".cargo").join("bin").join("helo.exe"));
+                    if let Some(src) = src.filter(|p| p.exists()) {
+                        if std::fs::copy(&src, extra).is_ok() {
+                            println!("Copied to {}", extra.display());
+                        }
+                    }
+                }
+            }
         } else {
             bail!("cargo install failed");
         }

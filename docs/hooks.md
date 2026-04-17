@@ -5,31 +5,20 @@ helo seeds a two-hook pattern into new Claude environment `settings.json` to kee
 ## Pipeline
 
 ```mermaid
-sequenceDiagram
-    participant U as User
-    participant C as Claude
-    participant SH as Stop Hook
-    participant UH as UserPromptSubmit Hook
-    participant G as Git
+flowchart TD
+    A([Turn ends]) --> B[Stop hook:\ncompare latest commit\nvs last CLAUDE.md commit]
+    B --> C{code newer\nthan CLAUDE.md?}
+    C -- No --> F([Idle])
+    C -- Yes --> D[write .git/claude-md-stale]
+    D --> E([Idle])
 
-    U->>C: sends prompt (Turn N)
-    C->>G: commits code changes
-    note over G: latest commit = code commit<br/>CLAUDE.md not touched
-
-    C-->>SH: turn ends → Stop hook fires
-    SH->>G: git log -1 (newest commit timestamp)
-    SH->>G: git log -1 -- CLAUDE.md (CLAUDE.md timestamp)
-    SH->>G: code_t > doc_t → touch .git/claude-md-stale
-
-    U->>UH: sends next prompt (Turn N+1)
-    UH->>G: check .git/claude-md-stale exists?
-    G-->>UH: yes
-    UH->>G: delete .git/claude-md-stale
-    UH-->>C: additionalContext injected:<br/>"CLAUDE.md is behind — update it first"
-
-    C->>C: updates CLAUDE.md before anything else
-    C->>G: commits CLAUDE.md update
-    note over G: doc_t now ≥ code_t<br/>flag will not be written next turn
+    G([Next turn starts]) --> H[UserPromptSubmit hook:\ncheck for flag file]
+    H --> I{flag exists?}
+    I -- No --> K([Claude proceeds normally])
+    I -- Yes --> J[delete flag\ninject warning into context]
+    J --> L[Claude updates CLAUDE.md\nbefore anything else]
+    L --> M[Claude commits CLAUDE.md]
+    M --> N([Turn ends — Stop hook\nfinds no stale flag])
 ```
 
 ## Why hooks?

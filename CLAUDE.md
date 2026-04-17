@@ -311,4 +311,4 @@ cargo install --path .   # replaces ~/.cargo/bin/helo.exe — helo must not be r
 
 ## Related projects
 
-The terminal GUI that used to live in `gui/` was extracted on 2026-04-17 into a separate project (`shelly`), now developed in its own repo. helo stays CLI-only by design — frontends (if any) consume it via `helo list --json` / `helo status --json` and by shelling out. The `gui/` folder in this repo is scheduled for removal once shelly stabilises.
+The terminal GUI that used to live in `gui/` was extracted on 2026-04-17 into a separate project (`shelly`), now developed in its own repo. helo stays CLI-only by design — frontends (if any) consume it via `helo list --json` / `helo status --json` and by shelling out. The `gui/` folder in this repo is scheduled for removal once shelly stabilises. `docs/gui.md` has been deleted — GUI is no longer documented here.

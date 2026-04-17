@@ -30,7 +30,7 @@ Linux/macOS compat is solid — all platform-specific logic is `#[cfg]`-guarded.
 
 ## Architecture
 
-**Blueprints** — global AI identities stored in helo's config (`config.toml` via `directories::ProjectDirs`). Fields: `name`, `runtime`, `provider`, `model`.
+**Blueprints** — global AI identities stored in helo's config (`config.toml` via `directories::ProjectDirs`). Fields: `name`, `runtime`, `provider`, `model`. `provider` and `model` have `#[serde(default)]` for backward compat — old blueprints without these fields load with empty strings instead of crashing.
 
 **Instances** — a blueprint placed into a project directory. Stored as `.helo.toml` inside the env dir (e.g. `.claude-env-<name>/`).
 
@@ -309,75 +309,6 @@ cargo build --release    # writes to target/ — safe while helo is running
 cargo install --path .   # replaces ~/.cargo/bin/helo.exe — helo must not be running
 ```
 
-## GUI (Electron terminal + blueprint panel)
+## Related projects
 
-`gui/` is an Electron terminal (xterm.js + node-pty) with a helo-aware blueprint panel. Uses the **Kinetic Console** design system — dark obsidian backgrounds, orange (#ff8c00) primary, zero border-radius, CRT scanline texture.
-
-**UI stack:**
-- Tailwind CSS v4 (`@tailwindcss/vite` plugin, no config file — all in `styles.css`)
-- shadcn/ui (base-nova style) — component primitives in `gui/src/components/ui/`
-- Framer Motion — modal animations, sidebar collapse, context menu springs, hover/tap micro-interactions
-- All components use Tailwind utilities exclusively (no vanilla CSS classes)
-
-**Design tokens** — defined in `gui/src/renderer/styles.css` `@theme` block:
-- Surface tonal stack: `--color-surface` (#0e0c14) through `--color-surface-bright` (#3d374a)
-- Primary: `--color-primary` (#ff8c00) with dim/glow/faint variants
-- Fonts: Space Grotesk (headlines), Inter (body), JetBrains Mono (monospace/code)
-- `--radius: 0px` globally (zero border-radius throughout)
-
-**Architecture:**
-- `gui/src/main/helo-bridge.ts` shells out to `helo` CLI via `execFile`. IPC handlers: `helo:list`, `helo:add`, `helo:remove`, `helo:status`, `helo:defaults-show`.
-- `gui/src/renderer/components/BlueprintPanel.tsx` — modal UI for list/add/remove/launch blueprints.
-- **Launch flow:** user picks blueprint + project dir → App.tsx creates new PTY session → pending init command stashed in `pendingInitCommands` ref → global `pty:ready` listener writes `cd <dir> && helo run <name>\n` when the PTY is ready.
-- `gui/src/shared/settings.ts` — theme definitions + settings types. Default theme: `kinetic`.
-
-**JSON CLI support (added for GUI consumption):**
-- `helo list --json` — array of blueprints
-- `helo status --json` — config path, blueprint count, API key flags
-
-**Dev:**
-```
-cd gui
-npm install
-npm run dev      # vite + electron with hot reload
-```
-
-**Build:**
-```
-cd gui
-npm run build    # tsc main + vite renderer → dist/
-npm run app      # run packaged dist/ (NODE_ENV=production)
-```
-
-**Components:**
-- `TitleBar.tsx` — drag region, HELO branding with glow dot, settings gear (SVG), window controls
-- `Sidebar.tsx` — vertical/horizontal modes, position prop (left/right/top/bottom), collapsible with Framer Motion `AnimatePresence`, resize handle, context menus for rename/close, active group indicator with `layoutId` animation
-- `ContextMenu.tsx` — glassmorphism backdrop, spring scale animation, hover slide effect
-- `SettingsPanel.tsx` — modal overlay with `AnimatePresence`, theme grid with color swatches, font/cursor/terminal/sidebar sections
-- `BlueprintPanel.tsx` — modal overlay, staggered list animation, launch dialog with browse, add form with animated expand/collapse
-- `TerminalView.tsx` — xterm.js wrapper, animated search bar (AnimatePresence), exit/error overlays with spring animations, context menu
-
-**Shell picker:**
-- Left-click `+` in titlebar → new terminal with default shell
-- Right-click `+` → context menu: pick shell or set default
-- Default shell persisted in settings.json (Electron userData)
-
-**Pane layout (up to 4 simultaneously):**
-- Sessions organized into groups (max 4 per group)
-- Grid: 1=full, 2=vertical stack, 3=top + bottom-split, 4=2×2
-- All terminals always mounted — hidden ones use `position: absolute; opacity: 0; pointer-events: none`
-- Panes resizable via drag handles with hover-reveal indicator lines
-
-**Session grouping:**
-- Groups created automatically (max 4 sessions per group)
-- Click group in sidebar to activate — shows its sessions in the pane grid
-- Right-click group/session for rename/close context menu
-- Double-click session name to inline rename
-
-**Sidebar:**
-- Configurable position: left/right/top/bottom (in Settings)
-- Resizable (drag edge handle), collapsible
-- Vertical mode: brand header, group list with active glow indicator, session sub-items with dot indicators, NEW SESSION button
-- Horizontal mode: compact tab bar with group tabs and session chips
-
-`helo` must be on PATH for the bridge to work.
+The terminal GUI that used to live in `gui/` was extracted on 2026-04-17 into a separate project (`shelly`), now developed in its own repo. helo stays CLI-only by design — frontends (if any) consume it via `helo list --json` / `helo status --json` and by shelling out. The `gui/` folder in this repo is scheduled for removal once shelly stabilises.

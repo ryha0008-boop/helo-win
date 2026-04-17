@@ -2,6 +2,36 @@
 
 helo seeds a two-hook pattern into new Claude environment `settings.json` to keep CLAUDE.md in sync with code changes.
 
+## Pipeline
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant C as Claude
+    participant SH as Stop Hook
+    participant UH as UserPromptSubmit Hook
+    participant G as Git
+
+    U->>C: sends prompt (Turn N)
+    C->>G: commits code changes
+    note over G: latest commit = code commit<br/>CLAUDE.md not touched
+
+    C-->>SH: turn ends → Stop hook fires
+    SH->>G: git log -1 (newest commit timestamp)
+    SH->>G: git log -1 -- CLAUDE.md (CLAUDE.md timestamp)
+    SH->>G: code_t > doc_t → touch .git/claude-md-stale
+
+    U->>UH: sends next prompt (Turn N+1)
+    UH->>G: check .git/claude-md-stale exists?
+    G-->>UH: yes
+    UH->>G: delete .git/claude-md-stale
+    UH-->>C: additionalContext injected:<br/>"CLAUDE.md is behind — update it first"
+
+    C->>C: updates CLAUDE.md before anything else
+    C->>G: commits CLAUDE.md update
+    note over G: doc_t now ≥ code_t<br/>flag will not be written next turn
+```
+
 ## Why hooks?
 
 When an agent modifies code, CLAUDE.md (project instructions) can fall behind. Without hooks, Claude doesn't know the docs are stale.

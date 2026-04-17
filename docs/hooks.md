@@ -34,12 +34,12 @@ This makes Claude **act on it** (unlike `systemMessage` which is user-facing onl
 
 ## Where hooks live
 
-Hooks are written to the env dir's `settings.json` at instance creation time. They also exist in the project-level `.claude/settings.json`.
+Hooks are written to the env dir's `settings.json` at instance creation time by `save_instance` (see `src/project.rs`). The commands themselves are generated in Rust, not stored in a standalone config file.
 
 ## Scope
 
-The Stop hook's git commands are scoped to `src/` and `gui/src/` — only code changes in those directories trigger the stale flag.
+The Stop hook has no path filter — any commit newer than the last commit that touched CLAUDE.md trips the stale flag. In practice this means: if you commit code and don't also update CLAUDE.md in the same (or a later) commit, the next turn will be reminded to update it.
 
 ## Disabling
 
-Edit the env dir's `settings.json` and remove the `hooks` block. Or delete the project-level `.claude/settings.json` hooks.
+Edit the env dir's `settings.json` and remove the `hooks` block.

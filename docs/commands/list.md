@@ -12,7 +12,7 @@ helo list [--json]
 
 | Option | Description |
 |--------|-------------|
-| `--json` | Output as JSON array (for scripting/GUI consumption) |
+| `--json` | Output as JSON array (for scripting/automation) |
 
 ## Examples
 

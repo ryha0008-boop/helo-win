@@ -28,4 +28,3 @@
 * [Interactive Mode](interactive-mode.md)
 * [Headless / Scripting](headless.md)
 * [Cross-Platform Notes](cross-platform.md)
-* [GUI](gui.md)

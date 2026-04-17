@@ -36,4 +36,4 @@ anthropic, zai, openrouter, openai, groq, deepseek, mistral, gemini, or any cust
 
 ## Platforms
 
-Windows, Linux, macOS. CLI only on Linux/macOS; GUI available on Windows.
+Windows, Linux, macOS. CLI only — no GUI.

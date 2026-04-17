@@ -7,7 +7,6 @@ helo runs on Windows, Linux, and macOS.
 | Feature | Windows | Linux / macOS |
 |---------|---------|---------------|
 | pi launcher | `cmd /c` | `sh -c` |
-| GUI | Full Electron app | CLI only |
 | Config dir | `%APPDATA%\helo\config\` | `~/.config/helo/` (Linux) / `~/Library/Application Support/helo/` (macOS) |
 | Binary extension | `.exe` | none |
 | Static build | N/A | `x86_64-unknown-linux-musl` target |

@@ -12,7 +12,7 @@ helo status [--json]
 
 | Option | Description |
 |--------|-------------|
-| `--json` | Output as JSON (for scripting/GUI consumption) |
+| `--json` | Output as JSON (for scripting/automation) |
 
 ## Output
 

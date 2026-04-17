@@ -100,7 +100,9 @@ mod tests {
 pub struct Blueprint {
     pub name: String,
     pub runtime: String, // "pi" | "claude" | "opencode"
+    #[serde(default)]
     pub provider: String,
+    #[serde(default)]
     pub model: String,
     /// API key stored in blueprint (optional — falls back to global key then env var).
     #[serde(default, skip_serializing_if = "Option::is_none")]

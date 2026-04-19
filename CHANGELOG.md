@@ -5,7 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [0.1.6] — 2026-04-19
 
 ### Added
 - Stop hook now also checks CHANGELOG.md, docs/, and memory file staleness alongside CLAUDE.md — combined reminder injected at start of next turn

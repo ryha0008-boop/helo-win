@@ -11,6 +11,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - API key not resolved at launch when set as global key (not in blueprint) — now checks blueprint → global key → env var
 - `helo status` only checked env vars for API keys — now also shows keys stored via `helo keys set` as "set (global)"
 
+### Changed
+- Merged `k` (set api key) and `g` (global keys) into single `k` keys submenu — shows blueprint keys and global keys together, supports set/rm/global/unglobal
+
 ## [0.1.7] — 2026-04-19
 
 ### Changed

@@ -1481,10 +1481,9 @@ fn run_interactive() -> Result<()> {
         println!();
         println!("  a  add blueprint     d  delete blueprint");
         println!("  e  edit blueprint    h  sessions (history)");
-        println!("  k  set api key       g  global keys");
-        println!("  s  status            c  clean runtime");
-        println!("  t  templates         x  defaults");
-        println!("  q  quit");
+        println!("  k  keys              s  status");
+        println!("  c  clean runtime     t  templates");
+        println!("  x  defaults          q  quit");
         println!();
 
         let input = iread("number to run, or letter: ")?;
@@ -1505,13 +1504,7 @@ fn run_interactive() -> Result<()> {
 
         match input.to_lowercase().as_str() {
             "a" => { if let Err(e) = interactive_add()     { println!("error: {e:#}"); } }
-            "k" => {
-                if cfg.blueprints.is_empty() {
-                    println!("No blueprints.");
-                } else if let Err(e) = interactive_set_key() {
-                    println!("error: {e:#}");
-                }
-            }
+            "k" => { if let Err(e) = interactive_keys_menu()  { println!("error: {e:#}"); } }
             "d" => {
                 if cfg.blueprints.is_empty() {
                     println!("No blueprints to delete.");
@@ -1528,7 +1521,6 @@ fn run_interactive() -> Result<()> {
             }
             "h" => { if let Err(e) = cmd_sessions(None)        { println!("error: {e:#}"); } }
             "s" => { if let Err(e) = cmd_status(false)        { println!("error: {e:#}"); } }
-            "g" => { if let Err(e) = interactive_keys()       { println!("error: {e:#}"); } }
             "t" => { if let Err(e) = interactive_templates()  { println!("error: {e:#}"); } }
             "c" => { if let Err(e) = interactive_clean()      { println!("error: {e:#}"); } }
             "x" => { if let Err(e) = interactive_defaults()   { println!("error: {e:#}"); } }
@@ -1629,20 +1621,88 @@ fn interactive_add() -> Result<()> {
     cmd_add(name, runtime, provider, model, api_key, claude_md_input)
 }
 
-fn interactive_set_key() -> Result<()> {
-    let cfg = config::load()?;
-    println!("Set API key:");
-    for (i, b) in cfg.blueprints.iter().enumerate() {
-        let has_key = if b.api_key.is_some() { " [key stored]" } else { "" };
-        println!("  {}  {}{}", i + 1, b.name, has_key);
+fn interactive_keys_menu() -> Result<()> {
+    loop {
+        println!();
+        let cfg = config::load()?;
+
+        // Blueprint keys
+        println!("  Blueprints:");
+        if cfg.blueprints.is_empty() {
+            println!("    (none)");
+        } else {
+            for (i, b) in cfg.blueprints.iter().enumerate() {
+                let key_status = match &b.api_key {
+                    Some(k) => mask_key(k),
+                    None => {
+                        // Check if global key covers this provider
+                        if let Some(gk) = cfg.keys.get(&b.provider) {
+                            format!("{} (global)", mask_key(gk))
+                        } else {
+                            "not set".to_string()
+                        }
+                    }
+                };
+                println!("    {}  {:<20} {}", i + 1, b.name, key_status);
+            }
+        }
+
+        // Global keys
+        println!("\n  Global:");
+        if cfg.keys.is_empty() {
+            println!("    (none)");
+        } else {
+            for (provider, key) in &cfg.keys {
+                println!("    {:<15} {}", provider, mask_key(key));
+            }
+        }
+
+        println!();
+        println!("  set <#> <key>            — set blueprint key");
+        println!("  rm <#>                   — clear blueprint key");
+        println!("  global <provider> <key>  — set global key");
+        println!("  unglobal <provider>      — remove global key");
+        println!("  q                        — back");
+        let input = iread("> ")?;
+        let parts: Vec<&str> = input.splitn(3, ' ').collect();
+        match parts.as_slice() {
+            [cmd] if cmd.eq_ignore_ascii_case("q") || cmd.is_empty() => break,
+            ["set", num, key] => {
+                if let Ok(n) = num.parse::<usize>() {
+                    let cfg = config::load()?;
+                    if n < 1 || n > cfg.blueprints.len() {
+                        println!("No blueprint #{}.", n);
+                    } else {
+                        let name = cfg.blueprints[n - 1].name.clone();
+                        if let Err(e) = cmd_key(name, key.to_string()) { println!("error: {e}"); }
+                    }
+                } else {
+                    println!("Expected blueprint number, got '{}'.", num);
+                }
+            }
+            ["rm", num] | ["remove", num] => {
+                if let Ok(n) = num.parse::<usize>() {
+                    let cfg = config::load()?;
+                    if n < 1 || n > cfg.blueprints.len() {
+                        println!("No blueprint #{}.", n);
+                    } else {
+                        let name = cfg.blueprints[n - 1].name.clone();
+                        if let Err(e) = cmd_key(name, String::new()) { println!("error: {e}"); }
+                    }
+                } else {
+                    println!("Expected blueprint number, got '{}'.", num);
+                }
+            }
+            ["global", provider, key] => {
+                if let Err(e) = cmd_keys_set(provider, key) { println!("error: {e}"); }
+            }
+            ["unglobal", provider] | ["rmglobal", provider] => {
+                if let Err(e) = cmd_keys_remove(provider) { println!("error: {e}"); }
+            }
+            _ => println!("Unknown: '{input}'"),
+        }
     }
-    let input = iread("Number [blank=cancel]: ")?;
-    if input.is_empty() { return Ok(()); }
-    let n: usize = input.parse().context("enter a number")?;
-    if n < 1 || n > cfg.blueprints.len() { bail!("no blueprint #{n}"); }
-    let name = cfg.blueprints[n - 1].name.clone();
-    let key = iread(&format!("Key for '{name}' [blank=clear]: "))?;
-    cmd_key(name, key)
+    Ok(())
 }
 
 fn interactive_edit() -> Result<()> {
@@ -1783,39 +1843,6 @@ fn interactive_defaults() -> Result<()> {
             }
             ["set", runtime, path] => {
                 if let Err(e) = cmd_defaults_set(runtime, path) { println!("error: {e}"); }
-            }
-            _ => println!("Unknown: '{input}'"),
-        }
-    }
-    Ok(())
-}
-
-fn interactive_keys() -> Result<()> {
-    loop {
-        println!();
-        let cfg = config::load()?;
-        if cfg.keys.is_empty() {
-            println!("  (no global keys)");
-        } else {
-            println!("{:<15} {}", "PROVIDER", "KEY");
-            println!("  {}", "-".repeat(36));
-            for (provider, key) in &cfg.keys {
-                println!("  {:<15} {}", provider, mask_key(key));
-            }
-        }
-        println!();
-        println!("  set <provider> <key>  — add or update");
-        println!("  remove <provider>     — delete");
-        println!("  q                     — back");
-        let input = iread("> ")?;
-        let parts: Vec<&str> = input.splitn(3, ' ').collect();
-        match parts.as_slice() {
-            [cmd] if cmd.eq_ignore_ascii_case("q") || cmd.is_empty() => break,
-            ["set", provider, key] => {
-                if let Err(e) = cmd_keys_set(provider, key) { println!("error: {e}"); }
-            }
-            ["remove", provider] | ["rm", provider] => {
-                if let Err(e) = cmd_keys_remove(provider) { println!("error: {e}"); }
             }
             _ => println!("Unknown: '{input}'"),
         }

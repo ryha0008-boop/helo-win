@@ -268,8 +268,7 @@ Menu header shows the current helo version and redraws on every loop iteration. 
 | 1–N | Run blueprint N (prompts: project dir, resume?, prompt?, extra args) |
 | a | Add blueprint (guided prompts for all fields) |
 | e | Edit blueprint (change runtime/provider/model/key) |
-| k | Set/update API key for a blueprint |
-| g | Global keys (set/remove/list) |
+| k | Keys submenu (blueprint keys + global keys, set/rm/global/unglobal) |
 | d | Delete blueprint (pick by number, confirm) |
 | s | Status (config path + API key presence) |
 | t | Templates submenu (`show <name>`, `init`) |

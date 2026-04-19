@@ -126,11 +126,6 @@ enum Commands {
         #[arg(short, long)]
         yes: bool,
     },
-    /// Manage default settings seeded into new environments
-    Defaults {
-        #[command(subcommand)]
-        sub: DefaultsCommands,
-    },
     /// Set or replace the API key stored in a blueprint
     Key {
         /// Blueprint name
@@ -192,22 +187,6 @@ enum TemplatesCommands {
 }
 
 #[derive(Subcommand)]
-enum DefaultsCommands {
-    /// Copy a settings file as the default for a runtime
-    Set {
-        /// Runtime: pi, claude, or opencode
-        runtime: String,
-        /// Path to the settings file to use as default
-        path: String,
-    },
-    /// Show the current default settings for a runtime
-    Show {
-        /// Runtime: pi, claude, or opencode
-        runtime: String,
-    },
-}
-
-#[derive(Subcommand)]
 enum KeysCommands {
     /// List stored global keys
     List,
@@ -257,10 +236,6 @@ fn run_command(command: Commands) -> Result<()> {
         Commands::Run { name, resume, prompt, extra } => cmd_run(name, resume, prompt, extra),
         Commands::Status { json } => cmd_status(json),
         Commands::Clean { name, global, yes } => cmd_clean(name, global, yes),
-        Commands::Defaults { sub } => match sub {
-            DefaultsCommands::Set { runtime, path } => cmd_defaults_set(&runtime, &path),
-            DefaultsCommands::Show { runtime } => cmd_defaults_show(&runtime),
-        },
         Commands::Templates { sub } => match sub {
             TemplatesCommands::List => cmd_templates_list(),
             TemplatesCommands::Show { name } => cmd_templates_show(&name),
@@ -985,6 +960,7 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, prompt: Option<
                     provider: bp.provider.clone(),
                     model: bp.model.clone(),
                     api_key: resolved_key.clone(),
+                    hooks: models::InstanceHooks::default(),
                 };
                 let claude_md_content = match &bp.claude_md {
                     Some(path) => Some(
@@ -1269,31 +1245,6 @@ fn cmd_clean(name: Option<String>, global: bool, yes: bool) -> Result<()> {
     Ok(())
 }
 
-fn cmd_defaults_set(runtime: &str, path: &str) -> Result<()> {
-    let src = std::path::Path::new(path);
-    let content = std::fs::read_to_string(src)
-        .with_context(|| format!("could not read {path}"))?;
-    let dest = config::defaults_path(runtime)?;
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&dest, content)
-        .with_context(|| format!("could not write {}", dest.display()))?;
-    println!("Saved defaults for '{runtime}': {}", dest.display());
-    Ok(())
-}
-
-fn cmd_defaults_show(runtime: &str) -> Result<()> {
-    let path = config::defaults_path(runtime)?;
-    if !path.exists() {
-        println!("No defaults set for '{runtime}'. Use: helo defaults set {runtime} <settings.json>");
-        return Ok(());
-    }
-    println!("Defaults for '{runtime}' ({})\n", path.display());
-    print!("{}", std::fs::read_to_string(&path)?);
-    Ok(())
-}
-
 fn cmd_status(json: bool) -> Result<()> {
     let path = config::config_path()?;
     let cfg = config::load()?;
@@ -1480,10 +1431,10 @@ fn run_interactive() -> Result<()> {
         }
         println!();
         println!("  a  add blueprint     d  delete blueprint");
-        println!("  e  edit blueprint    h  sessions (history)");
+        println!("  e  edit instance     h  sessions (history)");
         println!("  k  keys              s  status");
         println!("  c  clean runtime     t  templates");
-        println!("  x  defaults          q  quit");
+        println!("  q  quit");
         println!();
 
         let input = iread("number to run, or letter: ")?;
@@ -1512,18 +1463,11 @@ fn run_interactive() -> Result<()> {
                     println!("error: {e:#}");
                 }
             }
-            "e" => {
-                if cfg.blueprints.is_empty() {
-                    println!("No blueprints to edit.");
-                } else if let Err(e) = interactive_edit() {
-                    println!("error: {e:#}");
-                }
-            }
+            "e" => { if let Err(e) = interactive_edit_instance()  { println!("error: {e:#}"); } }
             "h" => { if let Err(e) = cmd_sessions(None)        { println!("error: {e:#}"); } }
             "s" => { if let Err(e) = cmd_status(false)        { println!("error: {e:#}"); } }
             "t" => { if let Err(e) = interactive_templates()  { println!("error: {e:#}"); } }
             "c" => { if let Err(e) = interactive_clean()      { println!("error: {e:#}"); } }
-            "x" => { if let Err(e) = interactive_defaults()   { println!("error: {e:#}"); } }
             "q" | "quit" | "exit" => break,
             _ => println!("Unknown: '{input}'"),
         }
@@ -1575,6 +1519,7 @@ fn interactive_run(bp: &models::Blueprint) -> Result<()> {
             provider: bp.provider.clone(),
             model: bp.model.clone(),
             api_key: resolved_key.clone(),
+            hooks: models::InstanceHooks::default(),
         };
         let claude_md_content = match &bp.claude_md {
             Some(path) => Some(
@@ -1705,43 +1650,88 @@ fn interactive_keys_menu() -> Result<()> {
     Ok(())
 }
 
-fn interactive_edit() -> Result<()> {
-    let cfg = config::load()?;
-    println!("Edit blueprint:");
-    for (i, b) in cfg.blueprints.iter().enumerate() {
-        let key = if b.api_key.is_some() { " [key]" } else { "" };
-        println!("  {}  {}  ({} / {} / {}{})", i + 1, b.name, b.runtime, b.provider, b.model, key);
+fn interactive_edit_instance() -> Result<()> {
+    let cwd = std::env::current_dir()?;
+    let instances = project::find_instances(&cwd);
+    if instances.is_empty() {
+        println!("No instances in current directory.");
+        println!("Run a blueprint first to create one.");
+        return Ok(());
+    }
+
+    println!("Edit instance:");
+    for (i, (_, inst)) in instances.iter().enumerate() {
+        let hooks_summary = format_hooks_summary(&inst.hooks);
+        println!("  {}  {}  ({}/{}/{})  hooks:{}",
+            i + 1, inst.name, inst.runtime, inst.provider, inst.model, hooks_summary);
     }
     let input = iread("Number [blank=cancel]: ")?;
     if input.is_empty() { return Ok(()); }
     let n: usize = input.parse().context("enter a number")?;
-    if n < 1 || n > cfg.blueprints.len() { bail!("no blueprint #{n}"); }
-    let bp = &cfg.blueprints[n - 1];
+    if n < 1 || n > instances.len() { bail!("no instance #{n}"); }
+    let (env_dir, mut inst) = instances[n - 1].clone();
 
-    println!();
-    println!("Editing: {} (current: {} / {} / {})", bp.name, bp.runtime, bp.provider, bp.model);
-    println!("  (blank = keep current value)");
-    println!();
+    loop {
+        let hooks_summary = format_hooks_summary(&inst.hooks);
+        println!();
+        println!("  Instance: {}  ({}/{}/{})", inst.name, inst.runtime, inst.provider, inst.model);
+        println!("  Hooks: {}  Key: {}", hooks_summary,
+            inst.api_key.as_deref().map(|_| "set").unwrap_or("not set"));
+        println!();
+        println!("  p  provider ({})      m  model ({})", inst.provider, inst.model);
+        println!("  k  api key");
+        println!("  1  Stop             [{}]", if inst.hooks.stop { "ON" } else { "OFF" });
+        println!("  2  UserPromptSubmit [{}]", if inst.hooks.user_prompt_submit { "ON" } else { "OFF" });
+        println!("  3  PostCompact      [{}]", if inst.hooks.post_compact { "ON" } else { "OFF" });
+        println!("  q  done (save & regenerate settings)");
+        let choice = iread("> ")?;
+        match choice.to_lowercase().as_str() {
+            "p" => {
+                let new_p = iread(&format!("Provider [{}]: ", inst.provider))?;
+                if !new_p.is_empty() && new_p != inst.provider {
+                    inst.provider = new_p;
+                    project::save_instance_toml(&env_dir, &inst)?;
+                }
+            }
+            "m" => {
+                let new_m = iread(&format!("Model [{}]: ", inst.model))?;
+                if !new_m.is_empty() && new_m != inst.model {
+                    inst.model = new_m;
+                    project::save_instance_toml(&env_dir, &inst)?;
+                }
+            }
+            "k" => {
+                let key_input = iread("API key [blank=keep, 'clear'=remove]: ")?;
+                if key_input == "clear" {
+                    inst.api_key = None;
+                } else if !key_input.is_empty() {
+                    inst.api_key = Some(key_input);
+                }
+                project::save_instance_toml(&env_dir, &inst)?;
+            }
+            "1" => { inst.hooks.stop = !inst.hooks.stop; project::save_instance_toml(&env_dir, &inst)?; }
+            "2" => { inst.hooks.user_prompt_submit = !inst.hooks.user_prompt_submit; project::save_instance_toml(&env_dir, &inst)?; }
+            "3" => { inst.hooks.post_compact = !inst.hooks.post_compact; project::save_instance_toml(&env_dir, &inst)?; }
+            "q" | "" => {
+                if inst.runtime == "claude" {
+                    if project::regenerate_settings(&env_dir, &inst)? {
+                        println!("Settings regenerated.");
+                    }
+                }
+                println!("Instance '{}' saved.", inst.name);
+                break;
+            }
+            _ => println!("Unknown: '{}'", choice),
+        }
+    }
+    Ok(())
+}
 
-    let runtime = iread(&format!("Runtime [{}]: ", bp.runtime))?;
-    let runtime = if runtime.is_empty() { None } else { Some(runtime) };
-
-    let provider = iread(&format!("Provider [{}]: ", bp.provider))?;
-    let provider = if provider.is_empty() { None } else { Some(provider) };
-
-    let model = iread(&format!("Model [{}]: ", bp.model))?;
-    let model = if model.is_empty() { None } else { Some(model) };
-
-    let key_input = iread("API key [blank=keep, 'clear'=remove]: ")?;
-    let api_key = if key_input.is_empty() {
-        None
-    } else if key_input == "clear" {
-        Some(None)
-    } else {
-        Some(Some(key_input))
-    };
-
-    cmd_edit(bp.name.clone(), runtime, provider, model, api_key, None)
+fn format_hooks_summary(hooks: &models::InstanceHooks) -> String {
+    let stop = if hooks.stop { "S" } else { "-" };
+    let ups = if hooks.user_prompt_submit { "U" } else { "-" };
+    let pc = if hooks.post_compact { "P" } else { "-" };
+    format!("{}{}{}", stop, ups, pc)
 }
 
 fn interactive_delete() -> Result<()> {
@@ -1826,28 +1816,6 @@ fn interactive_clean() -> Result<()> {
             cmd_clean(Some(input), false, false)
         }
     }
-}
-
-fn interactive_defaults() -> Result<()> {
-    loop {
-        println!();
-        println!("  show <runtime>        — print current defaults");
-        println!("  set <runtime> <path>  — set defaults from file");
-        println!("  q                     — back");
-        let input = iread("> ")?;
-        let parts: Vec<&str> = input.splitn(3, ' ').collect();
-        match parts.as_slice() {
-            [cmd] if cmd.eq_ignore_ascii_case("q") || cmd.is_empty() => break,
-            ["show", runtime] | ["show", runtime, _] => {
-                if let Err(e) = cmd_defaults_show(runtime) { println!("error: {e}"); }
-            }
-            ["set", runtime, path] => {
-                if let Err(e) = cmd_defaults_set(runtime, path) { println!("error: {e}"); }
-            }
-            _ => println!("Unknown: '{input}'"),
-        }
-    }
-    Ok(())
 }
 
 /// Shell-quote a string for safe inclusion in a sh -c / cmd /c command.

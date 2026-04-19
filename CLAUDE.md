@@ -48,7 +48,7 @@ Linux/macOS compat is solid — all platform-specific logic is `#[cfg]`-guarded.
 
 On first `helo run`, a `settings.json` is written to the env dir.
 
-**Non-ZAI providers** — uses user defaults (`helo defaults set claude <file>`) if set, otherwise built-in template:
+**Non-ZAI providers** — built-in template:
 ```json
 {
   "model": "<from blueprint>",
@@ -58,7 +58,7 @@ On first `helo run`, a `settings.json` is written to the env dir.
 }
 ```
 
-**ZAI provider** — always uses the built-in template (ignores user defaults). Generates an `env` block that Claude Code reads at startup. API key (`ANTHROPIC_AUTH_TOKEN`) is delivered via process env var at launch, not stored in settings.json:
+**ZAI provider** — built-in template with `env` block. API key (`ANTHROPIC_AUTH_TOKEN`) is delivered via process env var at launch, not stored in settings.json:
 ```json
 {
   "env": {
@@ -95,8 +95,6 @@ helo key <name> <key>                         # set/update api_key for an existi
 helo keys list                                # list global API keys
 helo keys set <provider> <key>                # set global key (auto-applied on add)
 helo keys remove <provider>                   # remove global key
-helo defaults set <runtime> <settings.json>   # save as global default for new envs
-helo defaults show <runtime>                  # show current default
 helo templates list                           # list built-in CLAUDE.md templates
 helo templates show <name>                    # print template content
 helo templates init                           # write templates to config dir
@@ -143,21 +141,6 @@ Interactive mode: press `g` to manage global keys.
 
 Keys are stored in `[keys]` section of `config.toml`.
 
-## Default settings
-
-New Claude envs copy `<helo_config>/defaults/claude.json` if it exists, otherwise use the built-in template. Set your defaults once with:
-
-```
-helo defaults set claude <path/to/settings.json>
-```
-
-Default locations (via `directories` crate):
-- Windows: `%APPDATA%\helo\config\defaults\claude.json`
-- Linux: `~/.config/helo/defaults/claude.json`
-- macOS: `~/Library/Application Support/helo/defaults/claude.json`
-
-**Config override:** set `HELO_CONFIG_DIR` env var to redirect all config reads/writes (used by integration tests).
-
 ## Hooks
 
 Three-hook pattern for git automation and documentation sync.
@@ -169,6 +152,10 @@ Three-hook pattern for git automation and documentation sync.
 **PostCompact hook** — runs after context compaction (manual and auto). Saves structured summary (analysis + summary sections) to `<env_dir>/contextdb/<timestamp>_<session>.jsonl`.
 
 Both hooks live in `.claude/settings.json` (project-level) and are seeded into new Claude env `settings.json` by `save_instance`. Stop doesn't support `hookSpecificOutput.additionalContext` — hence the two-hook pattern.
+
+**Per-instance hook toggling** — each instance stores hook preferences in `.helo.toml` (`[hooks]` section). All three hooks (Stop, UserPromptSubmit, PostCompact) default to enabled. Toggle via interactive `e` → instance editor. When toggled off, the hook is omitted from settings.json on regeneration. Old `.helo.toml` files without `[hooks]` load with all hooks enabled (serde default).
+
+**Instance editing** — `e` in interactive mode opens an instance editor for the current project. Change provider, model, API key, or toggle hooks. On exit (`q`), settings.json is regenerated from the built-in template respecting current toggles. Only claude instances have settings.json; pi/opencode instances only update `.helo.toml`.
 
 ## Windows notes
 
@@ -183,7 +170,7 @@ Both hooks live in `.claude/settings.json` (project-level) and are seeded into n
 On `helo run`:
 - `launch()` sets `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, and `ANTHROPIC_DEFAULT_*_MODEL` as process env vars (fallback for the env block in settings.json)
 - `save_instance()` writes the same vars into `settings.json` `"env"` block via `build_zai_settings()` — this is the primary mechanism Claude Code uses
-- ZAI blueprints always use the built-in settings template, ignoring user defaults (`helo defaults set claude`)
+- ZAI blueprints always use the built-in settings template
 
 Blueprint `zai-agent` exists with model `glm-5.1`. Stored global key: `helo keys set zai <key>`.
 
@@ -267,13 +254,12 @@ Menu header shows the current helo version and redraws on every loop iteration. 
 |-----|--------|
 | 1–N | Run blueprint N (prompts: project dir, resume?, prompt?, extra args) |
 | a | Add blueprint (guided prompts for all fields) |
-| e | Edit blueprint (change runtime/provider/model/key) |
+| e | Edit instance (provider, model, hooks, API key — regenerates settings.json) |
 | k | Keys submenu (blueprint keys + global keys, set/rm/global/unglobal) |
 | d | Delete blueprint (pick by number, confirm) |
 | s | Status (config path + API key presence) |
 | t | Templates submenu (`show <name>`, `init`) |
 | c | Clean instance env dirs or global runtime config |
-| x | Defaults submenu (`show <runtime>`, `set <runtime> <path>`) |
 | q | Quit |
 
 After a runtime subprocess exits, helo returns to the menu.

@@ -66,6 +66,7 @@ mod tests {
             provider: "openrouter".into(),
             model: "gpt-4o".into(),
             api_key: Some("sk-test".into()),
+            hooks: InstanceHooks::default(),
         };
 
         let toml = toml::to_string_pretty(&inst).unwrap();
@@ -86,12 +87,46 @@ mod tests {
             provider: "anthropic".into(),
             model: "haiku".into(),
             api_key: None,
+            hooks: InstanceHooks::default(),
         };
 
         let toml = toml::to_string_pretty(&inst).unwrap();
         let loaded: Instance = toml::from_str(&toml).unwrap();
 
         assert_eq!(loaded.api_key, None);
+    }
+
+    #[test]
+    fn instance_without_hooks_loads_all_enabled() {
+        let toml_str = r#"
+name = "old-inst"
+runtime = "claude"
+provider = "anthropic"
+model = "sonnet"
+"#;
+        let inst: Instance = toml::from_str(toml_str).unwrap();
+        assert!(inst.hooks.stop);
+        assert!(inst.hooks.user_prompt_submit);
+        assert!(inst.hooks.post_compact);
+    }
+
+    #[test]
+    fn instance_hooks_roundtrip() {
+        let inst = Instance {
+            name: "hooks-test".into(),
+            runtime: "claude".into(),
+            provider: "zai".into(),
+            model: "glm-5.1".into(),
+            api_key: None,
+            hooks: InstanceHooks { stop: false, user_prompt_submit: true, post_compact: false },
+        };
+
+        let toml = toml::to_string_pretty(&inst).unwrap();
+        let loaded: Instance = toml::from_str(&toml).unwrap();
+
+        assert!(!loaded.hooks.stop);
+        assert!(loaded.hooks.user_prompt_submit);
+        assert!(!loaded.hooks.post_compact);
     }
 }
 
@@ -112,6 +147,24 @@ pub struct Blueprint {
     pub claude_md: Option<String>,
 }
 
+/// Per-instance hook toggle state. Stored in .helo.toml.
+/// All hooks default to enabled for backward compat with old .helo.toml files.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstanceHooks {
+    #[serde(default = "default_true")]
+    pub stop: bool,
+    #[serde(default = "default_true")]
+    pub user_prompt_submit: bool,
+    #[serde(default = "default_true")]
+    pub post_compact: bool,
+}
+
+fn default_true() -> bool { true }
+
+impl Default for InstanceHooks {
+    fn default() -> Self { Self { stop: true, user_prompt_submit: true, post_compact: true } }
+}
+
 /// A placed blueprint — self-contained copy stored inside the env dir.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Instance {
@@ -121,6 +174,8 @@ pub struct Instance {
     pub model: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    #[serde(default)]
+    pub hooks: InstanceHooks,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

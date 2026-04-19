@@ -352,33 +352,6 @@ fn add_with_file_path_claude_md() {
     assert!(out.contains("Added blueprint"));
 }
 
-// ── defaults ──────────────────────────────────────────────────────────────────
-
-#[test]
-fn defaults_show_when_none() {
-    let cfg = tempfile::tempdir().unwrap();
-    let (out, _, code) = helo(cfg.path(), &["defaults", "show", "claude"]);
-    assert_eq!(code, Some(0));
-    assert!(out.contains("No defaults set"));
-}
-
-#[test]
-fn defaults_set_and_show() {
-    let cfg = tempfile::tempdir().unwrap();
-
-    let settings = cfg.path().join("my-settings.json");
-    std::fs::write(&settings, "{\"model\": \"opus\"}").unwrap();
-
-    let (out, _, code) = helo(cfg.path(), &[
-        "defaults", "set", "claude", settings.to_str().unwrap()
-    ]);
-    assert_eq!(code, Some(0));
-    assert!(out.contains("Saved defaults for 'claude'"));
-
-    let (out, _, _) = helo(cfg.path(), &["defaults", "show", "claude"]);
-    assert!(out.contains("opus"));
-}
-
 // ── add with api_key flag ─────────────────────────────────────────────────────
 
 #[test]

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-use crate::{config, models::Instance};
+use crate::models::{Instance, InstanceHooks};
 
 /// Minimal JSON string encoder — escapes the chars required by RFC 8259.
 pub fn json_str(s: &str) -> String {
@@ -59,21 +59,10 @@ pub fn save_instance(env_dir: &Path, inst: &Instance, claude_md: Option<&str>) -
     }
 
     // Claude reads settings from CLAUDE_CONFIG_DIR/settings.json.
-    // Without this file the model from the blueprint is silently ignored.
     if inst.runtime == "claude" {
         let settings_path = env_dir.join("settings.json");
         if !settings_path.exists() {
-            // ZAI provider always uses the built-in template (needs env block).
-            // Non-ZAI respects user defaults if set.
-            let content = if inst.provider == "zai" {
-                build_zai_settings(inst)
-            } else {
-                match config::defaults_path("claude") {
-                    Ok(p) if p.exists() => std::fs::read_to_string(&p)
-                        .with_context(|| format!("could not read defaults {}", p.display()))?,
-                    _ => build_default_settings(inst),
-                }
-            };
+            let content = generate_settings_content(inst)?;
             std::fs::write(&settings_path, content)
                 .context("could not write settings.json")?;
         }
@@ -92,14 +81,46 @@ pub fn save_instance(env_dir: &Path, inst: &Instance, claude_md: Option<&str>) -
     Ok(())
 }
 
-/// Build settings.json for ZAI provider — includes env block with API routing.
-fn build_zai_settings(inst: &Instance) -> String {
+/// Build hooks JSON block, respecting per-instance toggles.
+fn build_hooks_json(hooks: &InstanceHooks) -> String {
     let stop_cmd = r#"code_t=$(git log -1 --format="%ct" 2>/dev/null); doc_t=$(git log -1 --format="%ct" -- CLAUDE.md 2>/dev/null); [ -n "$code_t" ] && [ "${code_t:-0}" -gt "${doc_t:-0}" ] && touch .git/claude-md-stale || true; if [ -n "$(git status --porcelain 2>/dev/null)" ]; then git add -u && git commit -m "auto: $(date -u +%Y-%m-%dT%H:%M:%SZ)" && git push 2>/dev/null || true; fi"#;
     let ups_cmd = r#"ctx=""; if [ -f .git/claude-md-stale ]; then rm .git/claude-md-stale; ctx="CLAUDE.md, CHANGELOG.md, docs/, and memory files are behind code commits — update all of them before doing anything else this turn."; fi; if [ -f "$CLAUDE_CONFIG_DIR/CLAUDE.md" ]; then ctx="${ctx:+$ctx }Follow the terse coding style rules in your CLAUDE.md global instructions. No filler words, fragments only."; fi; ctx="${ctx:+$ctx }Before starting a task, evaluate if it can be broken into independent parallel sub-tasks. Use the Agent tool with sub-agents ONLY when: (a) sub-tasks are truly independent, (b) parallelism saves real time vs doing it sequentially. If unsure, just do it yourself. For complex tasks (3+ files, architectural decisions, unclear requirements) you MUST enter plan mode first. Do not start coding complex changes without an approved plan."; if [ -n "$ctx" ]; then printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}' "$ctx"; fi"#;
     let postcompact_cmd = r#"python "$CLAUDE_CONFIG_DIR/hooks/post-compact.py""#;
-    let stop_cmd_json = stop_cmd.replace('"', "\\\"");
-    let ups_cmd_json = ups_cmd.replace('"', "\\\"");
-    let postcompact_cmd_json = postcompact_cmd.replace('"', "\\\"");
+
+    let mut entries = Vec::new();
+    if hooks.stop {
+        entries.push(format!(
+            r#"    "Stop": [{{"hooks":[{{"type":"command","command":"{}"}}]}}]"#,
+            stop_cmd.replace('"', "\\\"")
+        ));
+    }
+    if hooks.user_prompt_submit {
+        entries.push(format!(
+            r#"    "UserPromptSubmit": [{{"hooks":[{{"type":"command","command":"{}"}}]}}]"#,
+            ups_cmd.replace('"', "\\\"")
+        ));
+    }
+    if hooks.post_compact {
+        entries.push(format!(
+            r#"    "PostCompact": [{{"hooks":[{{"type":"command","command":"{}"}}]}}]"#,
+            postcompact_cmd.replace('"', "\\\"")
+        ));
+    }
+    format!("{{\n{}\n  }}", entries.join(",\n"))
+}
+
+/// Generate settings.json content for an instance.
+fn generate_settings_content(inst: &Instance) -> Result<String> {
+    if inst.provider == "zai" {
+        Ok(build_zai_settings(inst))
+    } else {
+        Ok(build_default_settings(inst))
+    }
+}
+
+/// Build settings.json for ZAI provider — includes env block with API routing.
+fn build_zai_settings(inst: &Instance) -> String {
+    let hooks_json = build_hooks_json(&inst.hooks);
     format!(
         r#"{{
   "env": {{
@@ -114,56 +135,20 @@ fn build_zai_settings(inst: &Instance) -> String {
   "permissions": {{
     "defaultMode": "bypassPermissions"
   }},
-  "hooks": {{
-    "Stop": [
-      {{
-        "hooks": [
-          {{
-            "type": "command",
-            "command": "{}"
-          }}
-        ]
-      }}
-    ],
-    "UserPromptSubmit": [
-      {{
-        "hooks": [
-          {{
-            "type": "command",
-            "command": "{}"
-          }}
-        ]
-      }}
-    ],
-    "PostCompact": [
-      {{
-        "hooks": [
-          {{
-            "type": "command",
-            "command": "{}"
-          }}
-        ]
-      }}
-    ]
-  }},
+  "hooks": {},
   "effortLevel": "high"
 }}
 "#,
         json_str(&inst.model),
         json_str(&inst.model),
         json_str(&inst.model),
-        stop_cmd_json, ups_cmd_json, postcompact_cmd_json
+        hooks_json
     )
 }
 
 /// Build default settings.json for non-ZAI Claude envs.
 fn build_default_settings(inst: &Instance) -> String {
-    let stop_cmd = r#"code_t=$(git log -1 --format="%ct" 2>/dev/null); doc_t=$(git log -1 --format="%ct" -- CLAUDE.md 2>/dev/null); [ -n "$code_t" ] && [ "${code_t:-0}" -gt "${doc_t:-0}" ] && touch .git/claude-md-stale || true; if [ -n "$(git status --porcelain 2>/dev/null)" ]; then git add -u && git commit -m "auto: $(date -u +%Y-%m-%dT%H:%M:%SZ)" && git push 2>/dev/null || true; fi"#;
-    let ups_cmd = r#"ctx=""; if [ -f .git/claude-md-stale ]; then rm .git/claude-md-stale; ctx="CLAUDE.md, CHANGELOG.md, docs/, and memory files are behind code commits — update all of them before doing anything else this turn."; fi; if [ -f "$CLAUDE_CONFIG_DIR/CLAUDE.md" ]; then ctx="${ctx:+$ctx }Follow the terse coding style rules in your CLAUDE.md global instructions. No filler words, fragments only."; fi; ctx="${ctx:+$ctx }Before starting a task, evaluate if it can be broken into independent parallel sub-tasks. Use the Agent tool with sub-agents ONLY when: (a) sub-tasks are truly independent, (b) parallelism saves real time vs doing it sequentially. If unsure, just do it yourself. For complex tasks (3+ files, architectural decisions, unclear requirements) you MUST enter plan mode first. Do not start coding complex changes without an approved plan."; if [ -n "$ctx" ]; then printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}' "$ctx"; fi"#;
-    let postcompact_cmd = r#"python "$CLAUDE_CONFIG_DIR/hooks/post-compact.py""#;
-    let stop_cmd_json = stop_cmd.replace('"', "\\\"");
-    let ups_cmd_json = ups_cmd.replace('"', "\\\"");
-    let postcompact_cmd_json = postcompact_cmd.replace('"', "\\\"");
+    let hooks_json = build_hooks_json(&inst.hooks);
     format!(
         r#"{{
   "model": {},
@@ -171,42 +156,41 @@ fn build_default_settings(inst: &Instance) -> String {
   "permissions": {{
     "defaultMode": "bypassPermissions"
   }},
-  "hooks": {{
-    "Stop": [
-      {{
-        "hooks": [
-          {{
-            "type": "command",
-            "command": "{}"
-          }}
-        ]
-      }}
-    ],
-    "UserPromptSubmit": [
-      {{
-        "hooks": [
-          {{
-            "type": "command",
-            "command": "{}"
-          }}
-        ]
-      }}
-    ],
-    "PostCompact": [
-      {{
-        "hooks": [
-          {{
-            "type": "command",
-            "command": "{}"
-          }}
-        ]
-      }}
-    ]
-  }}
+  "hooks": {}
 }}
 "#,
-        json_str(&inst.model), stop_cmd_json, ups_cmd_json, postcompact_cmd_json
+        json_str(&inst.model), hooks_json
     )
+}
+
+/// Write just the .helo.toml for an existing instance.
+pub fn save_instance_toml(env_dir: &Path, inst: &Instance) -> Result<()> {
+    std::fs::write(
+        env_dir.join(".helo.toml"),
+        toml::to_string_pretty(inst)?,
+    ).context("could not write .helo.toml")
+}
+
+/// Regenerate settings.json for an existing instance, respecting current hook toggles.
+/// Only applies to claude instances. Returns false if non-claude.
+pub fn regenerate_settings(env_dir: &Path, inst: &Instance) -> Result<bool> {
+    if inst.runtime != "claude" {
+        return Ok(false);
+    }
+    let content = generate_settings_content(inst)?;
+    std::fs::write(env_dir.join("settings.json"), content)
+        .context("could not write settings.json")?;
+
+    // Ensure post-compact script exists if PostCompact is enabled
+    if inst.hooks.post_compact {
+        let hooks_dir = env_dir.join("hooks");
+        let script_path = hooks_dir.join("post-compact.py");
+        if !script_path.exists() {
+            std::fs::create_dir_all(&hooks_dir)?;
+            std::fs::write(&script_path, POST_COMPACT_SCRIPT)?;
+        }
+    }
+    Ok(true)
 }
 
 /// Scan a project directory for all placed instances.
@@ -249,6 +233,7 @@ mod tests {
             provider: "anthropic".into(),
             model: "sonnet".into(),
             api_key: None,
+            hooks: InstanceHooks::default(),
         }
     }
 
@@ -297,6 +282,7 @@ mod tests {
             provider: "anthropic".into(),
             model: "sonnet".into(),
             api_key: Some("sk-123".into()),
+            hooks: InstanceHooks::default(),
         };
         save_instance(tmp.path(), &inst, None).unwrap();
         let loaded = load_instance(tmp.path()).unwrap();
@@ -342,6 +328,7 @@ mod tests {
             provider: "anthropic".into(),
             model: "sonnet-4".into(),
             api_key: None,
+            hooks: InstanceHooks::default(),
         };
         save_instance(tmp.path(), &inst, None).unwrap();
         let settings = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
@@ -363,6 +350,7 @@ mod tests {
             provider: "anthropic".into(),
             model: "sonnet".into(),
             api_key: None,
+            hooks: InstanceHooks::default(),
         };
         save_instance(tmp.path(), &inst, None).unwrap();
         let settings = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
@@ -402,6 +390,7 @@ mod tests {
             provider: "anthropic".into(),
             model: "sonnet".into(),
             api_key: None,
+            hooks: InstanceHooks::default(),
         };
         save_instance(tmp.path(), &inst, None).unwrap();
         let settings = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
@@ -427,6 +416,7 @@ mod tests {
             provider: "anthropic".into(),
             model: "old-model".into(),
             api_key: None,
+            hooks: InstanceHooks::default(),
         };
         save_instance(tmp.path(), &inst, None).unwrap();
         // Manually modify settings
@@ -438,6 +428,7 @@ mod tests {
             provider: "anthropic".into(),
             model: "new-model".into(),
             api_key: None,
+            hooks: InstanceHooks::default(),
         };
         save_instance(tmp.path(), &inst2, None).unwrap();
         let content = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
@@ -458,6 +449,7 @@ mod tests {
             provider: "zai".into(),
             model: "glm-5.1".into(),
             api_key: Some("test-key-123".into()),
+            hooks: InstanceHooks::default(),
         };
         save_instance(tmp.path(), &inst, None).unwrap();
         let settings = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
@@ -487,6 +479,7 @@ mod tests {
             provider: "zai".into(),
             model: "glm-5.1".into(),
             api_key: None,
+            hooks: InstanceHooks::default(),
         };
         save_instance(tmp.path(), &inst, None).unwrap();
         let settings = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
@@ -555,6 +548,7 @@ mod tests {
             provider: "openrouter".into(),
             model: "gpt-4o".into(),
             api_key: None,
+            hooks: InstanceHooks::default(),
         };
         save_instance(&tmp.path().join(".claude-env-agent1"), &c_inst, None).unwrap();
         save_instance(&tmp.path().join(".pi-env-agent2"), &p_inst, None).unwrap();

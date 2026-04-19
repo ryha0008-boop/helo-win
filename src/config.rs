@@ -20,12 +20,6 @@ pub fn config_path() -> Result<PathBuf> {
     Ok(config_dir()?.join("config.toml"))
 }
 
-/// Path to the user-defined settings defaults for a given runtime.
-/// e.g. <config_dir>/defaults/claude.json
-pub fn defaults_path(runtime: &str) -> Result<PathBuf> {
-    Ok(config_dir()?.join("defaults").join(format!("{runtime}.json")))
-}
-
 /// Directory where built-in CLAUDE.md templates are stored.
 pub fn templates_dir() -> Result<PathBuf> {
     Ok(config_dir()?.join("templates"))

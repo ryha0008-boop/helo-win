@@ -13,6 +13,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - Merged `k` (set api key) and `g` (global keys) into single `k` keys submenu — shows blueprint keys and global keys together, supports set/rm/global/unglobal
+- `e` in interactive mode now edits instances (provider/model/hooks/key) instead of blueprints
+- Per-instance hook toggling — Stop, UserPromptSubmit, PostCompact can be enabled/disabled per instance
+- Instance settings.json can be regenerated after editing (provider/model/hook changes)
+
+### Removed
+- `helo defaults set/show` commands and `x` interactive menu — all instances use built-in template with hook toggles
 
 ## [0.1.7] — 2026-04-19
 

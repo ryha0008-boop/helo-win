@@ -162,11 +162,13 @@ Default locations (via `directories` crate):
 
 ## Hooks
 
-Two-hook pattern enforces CLAUDE.md updates after code commits.
+Three-hook pattern for git automation and documentation sync.
 
-**Stop hook** — runs at end of every turn. Compares most-recent commit timestamp vs CLAUDE.md last-commit timestamp. If CLAUDE.md is behind, writes `.git/claude-md-stale` flag file.
+**Stop hook** — runs at end of every turn. Two operations: (1) compares most-recent commit timestamp vs CLAUDE.md last-commit timestamp — if behind, writes `.git/claude-md-stale` flag file. (2) auto-commits tracked files and pushes to remote if there are uncommitted changes.
 
-**UserPromptSubmit hook** — runs at start of next turn. If flag file exists, deletes it and injects `additionalContext` into Claude's context: `"CLAUDE.md is behind code commits — update it before doing anything else this turn."` This makes Claude act on it (unlike a `systemMessage` which is user-facing only).
+**UserPromptSubmit hook** — runs at start of every turn. Injects `additionalContext` with: staleness reminder (CLAUDE.md, CHANGELOG.md, docs/, memory files), sub-agent evaluation guidance, plan mode enforcement for complex tasks, and terse style rule. CLAUDE.md is the staleness proxy — if it's stale, everything is assumed stale.
+
+**PostCompact hook** — runs after context compaction (manual and auto). Saves structured summary (analysis + summary sections) to `<env_dir>/contextdb/<timestamp>_<session>.jsonl`.
 
 Both hooks live in `.claude/settings.json` (project-level) and are seeded into new Claude env `settings.json` by `save_instance`. Stop doesn't support `hookSpecificOutput.additionalContext` — hence the two-hook pattern.
 

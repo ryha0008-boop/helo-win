@@ -22,6 +22,8 @@ pub fn json_str(s: &str) -> String {
     out
 }
 
+const POST_COMPACT_SCRIPT: &str = include_str!("hooks_post_compact.py");
+
 /// Returns the env dir path for a given runtime + name inside a project.
 /// e.g. project/.pi-env-myagent
 pub fn env_dir(project: &Path, runtime: &str, name: &str) -> PathBuf {
@@ -75,6 +77,16 @@ pub fn save_instance(env_dir: &Path, inst: &Instance, claude_md: Option<&str>) -
             std::fs::write(&settings_path, content)
                 .context("could not write settings.json")?;
         }
+
+        // Write PostCompact hook script to env dir.
+        let hooks_dir = env_dir.join("hooks");
+        let script_path = hooks_dir.join("post-compact.py");
+        if !script_path.exists() {
+            std::fs::create_dir_all(&hooks_dir)
+                .context("could not create hooks dir")?;
+            std::fs::write(&script_path, POST_COMPACT_SCRIPT)
+                .context("could not write post-compact.py")?;
+        }
     }
 
     Ok(())
@@ -82,10 +94,12 @@ pub fn save_instance(env_dir: &Path, inst: &Instance, claude_md: Option<&str>) -
 
 /// Build settings.json for ZAI provider — includes env block with API routing.
 fn build_zai_settings(inst: &Instance) -> String {
-    let stop_cmd = r#"code_t=$(git log -1 --format="%ct" 2>/dev/null); doc_t=$(git log -1 --format="%ct" -- CLAUDE.md 2>/dev/null); [ -n "$code_t" ] && [ "${code_t:-0}" -gt "${doc_t:-0}" ] && touch .git/claude-md-stale || true"#;
-    let ups_cmd = r#"ctx=""; if [ -f .git/claude-md-stale ]; then rm .git/claude-md-stale; ctx="CLAUDE.md is behind code commits — update it before doing anything else this turn."; fi; if [ -f "$CLAUDE_CONFIG_DIR/CLAUDE.md" ]; then ctx="${ctx:+$ctx }Follow the terse coding style rules in your CLAUDE.md global instructions. No filler words, fragments only."; fi; if [ -n "$ctx" ]; then printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}' "$ctx"; fi"#;
+    let stop_cmd = r#"code_t=$(git log -1 --format="%ct" 2>/dev/null); doc_t=$(git log -1 --format="%ct" -- CLAUDE.md 2>/dev/null); [ -n "$code_t" ] && [ "${code_t:-0}" -gt "${doc_t:-0}" ] && touch .git/claude-md-stale || true; if [ -n "$(git status --porcelain 2>/dev/null)" ]; then git add -u && git commit -m "auto: $(date -u +%Y-%m-%dT%H:%M:%SZ)" && git push 2>/dev/null || true; fi"#;
+    let ups_cmd = r#"ctx=""; if [ -f .git/claude-md-stale ]; then rm .git/claude-md-stale; ctx="CLAUDE.md, CHANGELOG.md, docs/, and memory files are behind code commits — update all of them before doing anything else this turn."; fi; if [ -f "$CLAUDE_CONFIG_DIR/CLAUDE.md" ]; then ctx="${ctx:+$ctx }Follow the terse coding style rules in your CLAUDE.md global instructions. No filler words, fragments only."; fi; ctx="${ctx:+$ctx }Before starting a task, evaluate if it can be broken into independent parallel sub-tasks. Use the Agent tool with sub-agents ONLY when: (a) sub-tasks are truly independent, (b) parallelism saves real time vs doing it sequentially. If unsure, just do it yourself. For complex tasks (3+ files, architectural decisions, unclear requirements) you MUST enter plan mode first. Do not start coding complex changes without an approved plan."; if [ -n "$ctx" ]; then printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}' "$ctx"; fi"#;
+    let postcompact_cmd = r#"python "$CLAUDE_CONFIG_DIR/hooks/post-compact.py""#;
     let stop_cmd_json = stop_cmd.replace('"', "\\\"");
     let ups_cmd_json = ups_cmd.replace('"', "\\\"");
+    let postcompact_cmd_json = postcompact_cmd.replace('"', "\\\"");
     let api_key = inst.api_key.as_deref().unwrap_or("");
     format!(
         r#"{{
@@ -122,6 +136,16 @@ fn build_zai_settings(inst: &Instance) -> String {
           }}
         ]
       }}
+    ],
+    "PostCompact": [
+      {{
+        "hooks": [
+          {{
+            "type": "command",
+            "command": "{}"
+          }}
+        ]
+      }}
     ]
   }},
   "effortLevel": "high"
@@ -131,16 +155,18 @@ fn build_zai_settings(inst: &Instance) -> String {
         json_str(&inst.model),
         json_str(&inst.model),
         json_str(&inst.model),
-        stop_cmd_json, ups_cmd_json
+        stop_cmd_json, ups_cmd_json, postcompact_cmd_json
     )
 }
 
 /// Build default settings.json for non-ZAI Claude envs.
 fn build_default_settings(inst: &Instance) -> String {
-    let stop_cmd = r#"code_t=$(git log -1 --format="%ct" 2>/dev/null); doc_t=$(git log -1 --format="%ct" -- CLAUDE.md 2>/dev/null); [ -n "$code_t" ] && [ "${code_t:-0}" -gt "${doc_t:-0}" ] && touch .git/claude-md-stale || true"#;
-    let ups_cmd = r#"ctx=""; if [ -f .git/claude-md-stale ]; then rm .git/claude-md-stale; ctx="CLAUDE.md is behind code commits — update it before doing anything else this turn."; fi; if [ -f "$CLAUDE_CONFIG_DIR/CLAUDE.md" ]; then ctx="${ctx:+$ctx }Follow the terse coding style rules in your CLAUDE.md global instructions. No filler words, fragments only."; fi; if [ -n "$ctx" ]; then printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}' "$ctx"; fi"#;
+    let stop_cmd = r#"code_t=$(git log -1 --format="%ct" 2>/dev/null); doc_t=$(git log -1 --format="%ct" -- CLAUDE.md 2>/dev/null); [ -n "$code_t" ] && [ "${code_t:-0}" -gt "${doc_t:-0}" ] && touch .git/claude-md-stale || true; if [ -n "$(git status --porcelain 2>/dev/null)" ]; then git add -u && git commit -m "auto: $(date -u +%Y-%m-%dT%H:%M:%SZ)" && git push 2>/dev/null || true; fi"#;
+    let ups_cmd = r#"ctx=""; if [ -f .git/claude-md-stale ]; then rm .git/claude-md-stale; ctx="CLAUDE.md, CHANGELOG.md, docs/, and memory files are behind code commits — update all of them before doing anything else this turn."; fi; if [ -f "$CLAUDE_CONFIG_DIR/CLAUDE.md" ]; then ctx="${ctx:+$ctx }Follow the terse coding style rules in your CLAUDE.md global instructions. No filler words, fragments only."; fi; ctx="${ctx:+$ctx }Before starting a task, evaluate if it can be broken into independent parallel sub-tasks. Use the Agent tool with sub-agents ONLY when: (a) sub-tasks are truly independent, (b) parallelism saves real time vs doing it sequentially. If unsure, just do it yourself. For complex tasks (3+ files, architectural decisions, unclear requirements) you MUST enter plan mode first. Do not start coding complex changes without an approved plan."; if [ -n "$ctx" ]; then printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}' "$ctx"; fi"#;
+    let postcompact_cmd = r#"python "$CLAUDE_CONFIG_DIR/hooks/post-compact.py""#;
     let stop_cmd_json = stop_cmd.replace('"', "\\\"");
     let ups_cmd_json = ups_cmd.replace('"', "\\\"");
+    let postcompact_cmd_json = postcompact_cmd.replace('"', "\\\"");
     format!(
         r#"{{
   "model": {},
@@ -168,11 +194,21 @@ fn build_default_settings(inst: &Instance) -> String {
           }}
         ]
       }}
+    ],
+    "PostCompact": [
+      {{
+        "hooks": [
+          {{
+            "type": "command",
+            "command": "{}"
+          }}
+        ]
+      }}
     ]
   }}
 }}
 "#,
-        json_str(&inst.model), stop_cmd_json, ups_cmd_json
+        json_str(&inst.model), stop_cmd_json, ups_cmd_json, postcompact_cmd_json
     )
 }
 
@@ -333,14 +369,28 @@ mod tests {
         };
         save_instance(tmp.path(), &inst, None).unwrap();
         let settings = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
-        // Stop hook creates .git/claude-md-stale flag file
-        // UPS hook removes flag and adds additionalContext
+        // Stop hook creates .git/claude-md-stale flag file + auto-commits
+        // UPS hook removes flag, tells Claude to update docs + use sub-agents + plan mode
         assert!(
             settings.contains("claude-md-stale"),
             "settings should contain claude-md-stale. Actual: {}",
             settings
         );
+        assert!(settings.contains("CHANGELOG.md"));
+        assert!(settings.contains("docs/"));
+        assert!(settings.contains("memory files"));
+        assert!(settings.contains("git add -u"));
+        assert!(settings.contains("git push"));
+        assert!(settings.contains("sub-agents"));
+        assert!(settings.contains("plan mode"));
+        assert!(settings.contains("PostCompact"));
+        assert!(settings.contains("post-compact.py"));
         assert!(settings.contains("additionalContext"));
+        // PostCompact script written to disk
+        assert!(
+            tmp.path().join("hooks/post-compact.py").exists(),
+            "post-compact.py should be written to env dir"
+        );
     }
 
     #[test]

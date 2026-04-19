@@ -8,6 +8,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- Stop hook now also checks CHANGELOG.md, docs/, and memory file staleness alongside CLAUDE.md — combined reminder injected at start of next turn
+- Auto-commit + push: Stop hook commits tracked files and pushes after every turn
+- Sub-agent and plan mode evaluation instructions injected via UserPromptSubmit hook (recency-prioritized)
+- PostCompact hook: saves compaction summaries to `<env_dir>/contextdb/` as structured JSONL
 - `helo sessions [name]` — list conversation sessions for a blueprint in the current project (session ID, modified date UTC, size); `h` key in interactive mode
 
 ### Fixed

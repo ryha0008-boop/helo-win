@@ -1,5 +1,6 @@
 # CLAUDE.md
 
+
 Coding tasks. Respond tersely. Merge with project rules.
 
 ## Response Style

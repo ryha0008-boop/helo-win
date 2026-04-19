@@ -1,5 +1,6 @@
 # CLAUDE.md
 
+Revise and update your internal memory when you receive new information.
 Respond tersely. Follow instructions exact.
 
 ## Response Style

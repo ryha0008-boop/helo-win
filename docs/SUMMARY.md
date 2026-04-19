@@ -13,7 +13,6 @@
   * [remove](commands/remove.md)
   * [key](commands/key.md)
   * [keys](commands/keys.md)
-  * [defaults](commands/defaults.md)
   * [templates](commands/templates.md)
   * [status](commands/status.md)
   * [clean](commands/clean.md)

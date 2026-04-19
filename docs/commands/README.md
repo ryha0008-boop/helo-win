@@ -14,8 +14,6 @@ helo key <name> <key>                             # set/update blueprint API key
 helo keys set <provider> <key>                    # set global key
 helo keys remove <provider>                       # remove global key
 helo keys list                                    # list global keys
-helo defaults set <runtime> <path>                # set default settings
-helo defaults show <runtime>                      # show defaults
 helo templates list                               # list CLAUDE.md templates
 helo templates show <name>                        # print template
 helo templates init                               # write templates to config dir

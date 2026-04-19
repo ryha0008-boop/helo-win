@@ -45,7 +45,6 @@ zai = "zai-key-xxx"
 | File | Purpose |
 |------|---------|
 | `config.toml` | Blueprints + global keys |
-| `defaults/claude.json` | User-defined default settings for new Claude envs |
 | `templates/*.md` | Built-in CLAUDE.md templates |
 
 ## Editing

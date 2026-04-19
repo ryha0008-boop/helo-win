@@ -22,12 +22,12 @@ Config: /home/user/.config/helo/config.toml
 Blueprints: 3
 
 API keys:
-  Anthropic          set
+  Anthropic          set (env)
   OpenRouter         not set
   OpenAI             not set
   Groq               not set
   DeepSeek           not set
-  Z.AI               set
+  Z.AI               set (global)
   Gemini             not set
   Mistral            not set
 ```

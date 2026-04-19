@@ -101,4 +101,6 @@ Hooks are written to the env dir's `settings.json` at instance creation time by 
 
 ## Disabling
 
-Edit the env dir's `settings.json` and remove the `hooks` block.
+Toggle hooks per instance via interactive mode (`e` → select instance → press `1`, `2`, or `3`). On save, `settings.json` is regenerated with only the enabled hooks.
+
+Hook preferences are stored in the instance's `.helo.toml` under `[hooks]`. Old instances without this section default to all hooks enabled.

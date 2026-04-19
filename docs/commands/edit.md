@@ -46,3 +46,5 @@ helo edit myagent --claude-md coding
 ## Notes
 
 Only the specified fields are updated — unspecified fields are unchanged. Changes take effect on the next `helo run`.
+
+This command edits **blueprints** (global templates). To edit a running **instance** (change provider, model, hooks, or API key for an existing env dir), use interactive mode (`e` key). Instance editing regenerates `settings.json` to reflect the changes.

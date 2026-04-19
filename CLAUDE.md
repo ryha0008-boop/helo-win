@@ -128,7 +128,7 @@ Claude's `-p` / `--print` flag runs a single prompt and exits. All helo isolatio
 
 ## Global API keys
 
-Store a key once per provider — auto-applied when `helo add` creates a blueprint (no `--api-key` needed):
+Store a key once per provider — auto-applied when `helo add` creates a blueprint (no `--api-key` needed). Also used at launch time if the blueprint has no stored key:
 
 ```
 helo keys set zai <key>

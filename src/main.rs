@@ -969,13 +969,22 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, prompt: Option<
                 .with_context(|| format!("no blueprint named '{n}'. Run: helo list"))?;
 
             let env_dir = project::env_dir(&cwd, &bp.runtime, &bp.name);
+            // Resolve key: blueprint → global key → env var
+            let resolved_key = bp.api_key.as_deref()
+                .map(Some)
+                .unwrap_or_else(|| cfg.keys.get(&bp.provider).map(|s| s.as_str()))
+                .map(str::to_string)
+                .or_else(|| match bp.provider.as_str() {
+                    "zai" => std::env::var("ZAI_API_KEY").ok().filter(|v| !v.is_empty()),
+                    _ => std::env::var("ANTHROPIC_API_KEY").ok().filter(|v| !v.is_empty()),
+                });
             if !env_dir.exists() {
                 let inst = models::Instance {
                     name: bp.name.clone(),
                     runtime: bp.runtime.clone(),
                     provider: bp.provider.clone(),
                     model: bp.model.clone(),
-                    api_key: bp.api_key.clone(),
+                    api_key: resolved_key.clone(),
                 };
                 let claude_md_content = match &bp.claude_md {
                     Some(path) => Some(
@@ -987,7 +996,7 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, prompt: Option<
                 project::save_instance(&env_dir, &inst, claude_md_content.as_deref())?;
                 println!("Created: {}", env_dir.display());
             }
-            launch(&bp.runtime, &bp.provider, &bp.model, bp.api_key.as_deref(), &env_dir, resume.as_ref(), &extra)?
+            launch(&bp.runtime, &bp.provider, &bp.model, resolved_key.as_deref(), &env_dir, resume.as_ref(), &extra)?
         }
         None => {
             let instances = project::find_instances(&cwd);
@@ -1053,12 +1062,8 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
             match provider {
                 "zai" => {
                     c.env("ANTHROPIC_BASE_URL", "https://api.z.ai/api/anthropic");
-                    let key = api_key
-                        .map(str::to_string)
-                        .or_else(|| std::env::var("ZAI_API_KEY").ok().filter(|v| !v.is_empty()))
-                        .unwrap_or_default();
-                    if !key.is_empty() {
-                        c.env("ANTHROPIC_AUTH_TOKEN", &key);
+                    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+                        c.env("ANTHROPIC_AUTH_TOKEN", key);
                     }
                     // Clear any inherited ANTHROPIC_API_KEY — ZAI uses AUTH_TOKEN, and an
                     // inherited key causes Claude Code to prompt "detected custom API key".
@@ -1323,8 +1328,23 @@ fn cmd_status(json: bool) -> Result<()> {
     println!("Blueprints: {}", cfg.blueprints.len());
     println!("\nAPI keys:");
     for (env, label) in &keys {
-        let status = if std::env::var(env).map(|v| !v.is_empty()).unwrap_or(false) {
-            "set"
+        let from_env = std::env::var(env).map(|v| !v.is_empty()).unwrap_or(false);
+        let provider_key = match *label {
+            "Anthropic" => "anthropic",
+            "OpenRouter" => "openrouter",
+            "OpenAI" => "openai",
+            "Groq" => "groq",
+            "DeepSeek" => "deepseek",
+            "Z.AI" => "zai",
+            "Gemini" => "gemini",
+            "Mistral" => "mistral",
+            _ => "",
+        };
+        let from_global = cfg.keys.contains_key(provider_key);
+        let status = if from_env {
+            "set (env)"
+        } else if from_global {
+            "set (global)"
         } else {
             "not set"
         };
@@ -1547,13 +1567,22 @@ fn interactive_run(bp: &models::Blueprint) -> Result<()> {
     }
 
     let env_dir = project::env_dir(&project_dir, &bp.runtime, &bp.name);
+    let cfg = config::load()?;
+    let resolved_key = bp.api_key.as_deref()
+        .map(Some)
+        .unwrap_or_else(|| cfg.keys.get(&bp.provider).map(|s| s.as_str()))
+        .map(str::to_string)
+        .or_else(|| match bp.provider.as_str() {
+            "zai" => std::env::var("ZAI_API_KEY").ok().filter(|v| !v.is_empty()),
+            _ => std::env::var("ANTHROPIC_API_KEY").ok().filter(|v| !v.is_empty()),
+        });
     if !env_dir.exists() {
         let inst = models::Instance {
             name: bp.name.clone(),
             runtime: bp.runtime.clone(),
             provider: bp.provider.clone(),
             model: bp.model.clone(),
-            api_key: bp.api_key.clone(),
+            api_key: resolved_key.clone(),
         };
         let claude_md_content = match &bp.claude_md {
             Some(path) => Some(
@@ -1566,7 +1595,7 @@ fn interactive_run(bp: &models::Blueprint) -> Result<()> {
         println!("Created: {}", env_dir.display());
     }
 
-    let code = launch(&bp.runtime, &bp.provider, &bp.model, bp.api_key.as_deref(), &env_dir, resume.as_ref(), &extra)?;
+    let code = launch(&bp.runtime, &bp.provider, &bp.model, resolved_key.as_deref(), &env_dir, resume.as_ref(), &extra)?;
     if code != 0 {
         println!("Process exited with code {}.", code);
     }

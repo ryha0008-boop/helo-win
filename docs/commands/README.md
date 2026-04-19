@@ -24,7 +24,6 @@ helo clean [name] [--global <runtime>] [--yes]    # remove env dirs or global ru
 helo runtime install <runtime>                    # install a runtime
 helo runtime uninstall <runtime>                  # uninstall a runtime
 helo runtime list                                 # show installed runtimes
-helo completion <shell>                           # generate shell completions
 helo update                                       # self-update from GitHub releases
 helo sessions [name]                              # list conversation sessions (id, date, size)
 ```

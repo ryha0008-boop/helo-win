@@ -30,8 +30,7 @@ fn ensure_templates() -> anyhow::Result<()> {
 }
 
 use anyhow::{bail, Context, Result};
-use clap::{CommandFactory, Parser, Subcommand};
-use clap_complete::{generate, Shell};
+use clap::{Parser, Subcommand};
 use std::path::Path;
 
 #[derive(Parser)]
@@ -148,11 +147,6 @@ enum Commands {
     Keys {
         #[command(subcommand)]
         sub: KeysCommands,
-    },
-    /// Generate shell completion scripts
-    Completion {
-        /// Shell type: bash, zsh, fish, powershell, elvish
-        shell: Shell,
     },
     /// Check for helo updates
     Update,
@@ -277,10 +271,6 @@ fn run_command(command: Commands) -> Result<()> {
             KeysCommands::Set { provider, key } => cmd_keys_set(&provider, &key),
             KeysCommands::Remove { provider } => cmd_keys_remove(&provider),
         },
-        Commands::Completion { shell } => {
-            generate(shell, &mut Cli::command(), "helo", &mut std::io::stdout());
-            Ok(())
-        }
         Commands::Update => cmd_update(),
         Commands::Runtime { sub } => match sub {
             RuntimeCommands::Install { runtime } => cmd_runtime_install(&runtime),
@@ -525,6 +515,11 @@ fn runtime_uninstall_cmd(runtime: &str) -> (&'static str, &'static [&'static str
 
 fn cmd_runtime_install(runtime: &str) -> Result<()> {
     which_runtime(runtime)?;
+
+    if runtime == "claude" {
+        return cmd_runtime_install_claude();
+    }
+
     let (bin, args) = runtime_install_cmd(runtime);
     if bin.is_empty() { bail!("unknown runtime"); }
 
@@ -538,6 +533,34 @@ fn cmd_runtime_install(runtime: &str) -> Result<()> {
         println!("Installed {runtime}.");
     } else {
         bail!("failed to install {runtime} — {bin} exited with {}", status.code().unwrap_or(1));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn cmd_runtime_install_claude() -> Result<()> {
+    println!("Installing claude (native installer)...");
+    let script = "irm https://claude.ai/install.ps1 | iex";
+    let status = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", script])
+        .status()
+        .with_context(|| "powershell not found")?;
+    if status.success() { println!("Installed claude."); } else {
+        bail!("claude install failed — powershell exited with {}", status.code().unwrap_or(1));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn cmd_runtime_install_claude() -> Result<()> {
+    println!("Installing claude (native installer)...");
+    let script = "curl -fsSL https://claude.ai/install.sh | bash";
+    let status = std::process::Command::new("sh")
+        .args(["-c", script])
+        .status()
+        .with_context(|| "sh not found")?;
+    if status.success() { println!("Installed claude."); } else {
+        bail!("claude install failed — sh exited with {}", status.code().unwrap_or(1));
     }
     Ok(())
 }
@@ -605,6 +628,34 @@ fn cmd_init() -> Result<()> {
 
     let mut installed = Vec::new();
     for name in &runtimes {
+        if name == &"claude" {
+            // claude uses native installer — handle separately
+            if is_installed(name) {
+                let ver = std::process::Command::new(name)
+                    .arg("--version")
+                    .output()
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().lines().next().unwrap_or("").to_string())
+                    .unwrap_or_default();
+                println!("  {} — already installed ({})", name, ver);
+                installed.push(name.to_string());
+            } else {
+                print!("  {} — not found. Install? [Y/n]: ", name);
+                use std::io::Write;
+                std::io::stdout().flush()?;
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                if !input.trim().eq_ignore_ascii_case("n") {
+                    print!("  Installing {}...", name);
+                    std::io::stdout().flush()?;
+                    match cmd_runtime_install_claude() {
+                        Ok(()) => { println!(" done."); installed.push(name.to_string()); }
+                        Err(e) => println!(" failed: {e:#}"),
+                    }
+                }
+            }
+            continue;
+        }
         let (installer, install_args) = runtime_install_cmd(name);
         if is_installed(name) {
             let ver = std::process::Command::new(name)

@@ -18,7 +18,6 @@
   * [status](commands/status.md)
   * [clean](commands/clean.md)
   * [runtime](commands/runtime.md)
-  * [completion](commands/completion.md)
   * [update](commands/update.md)
   * [sessions](commands/sessions.md)
 * [Configuration](configuration.md)

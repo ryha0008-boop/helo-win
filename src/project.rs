@@ -100,11 +100,9 @@ fn build_zai_settings(inst: &Instance) -> String {
     let stop_cmd_json = stop_cmd.replace('"', "\\\"");
     let ups_cmd_json = ups_cmd.replace('"', "\\\"");
     let postcompact_cmd_json = postcompact_cmd.replace('"', "\\\"");
-    let api_key = inst.api_key.as_deref().unwrap_or("");
     format!(
         r#"{{
   "env": {{
-    "ANTHROPIC_AUTH_TOKEN": {},
     "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
     "API_TIMEOUT_MS": "3000000",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -151,7 +149,6 @@ fn build_zai_settings(inst: &Instance) -> String {
   "effortLevel": "high"
 }}
 "#,
-        json_str(api_key),
         json_str(&inst.model),
         json_str(&inst.model),
         json_str(&inst.model),
@@ -469,7 +466,6 @@ mod tests {
         // env block present
         let env = parsed.get("env").expect("must have env block");
         assert_eq!(env["ANTHROPIC_BASE_URL"], "https://api.z.ai/api/anthropic");
-        assert_eq!(env["ANTHROPIC_AUTH_TOKEN"], "test-key-123");
         assert_eq!(env["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "glm-5.1");
         assert_eq!(env["ANTHROPIC_DEFAULT_SONNET_MODEL"], "glm-5.1");
         assert_eq!(env["ANTHROPIC_DEFAULT_OPUS_MODEL"], "glm-5.1");
@@ -495,8 +491,8 @@ mod tests {
         save_instance(tmp.path(), &inst, None).unwrap();
         let settings = std::fs::read_to_string(tmp.path().join("settings.json")).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&settings).unwrap();
-        // Empty string when no key stored (falls back to env var at runtime)
-        assert_eq!(parsed["env"]["ANTHROPIC_AUTH_TOKEN"], "");
+        // No ANTHROPIC_AUTH_TOKEN in settings.json — delivered via process env at launch
+        assert!(parsed["env"].get("ANTHROPIC_AUTH_TOKEN").is_none());
     }
 
     // ── CLAUDE.md seeding ─────────────────────────────────────────────────────

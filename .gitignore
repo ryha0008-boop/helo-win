@@ -1,20 +1,17 @@
 /target
 
-# Electron GUI build artifacts
-gui/node_modules/
-gui/dist/
-gui/test-results/
-gui/playwright-report/
-
-# helo launcher state dirs (created by `helo run`)
+# helo instance env dirs (created by `helo run`)
 .claude-env-*/
 .pi-env-*/
 .opencode-env-*/
 
-# Claude Code session/config
-.claude-env/
-.claude/settings.local.json
+# Claude Code internal
+.claude/
 
+# Self-update artifact
+*.exe.old
+
+# Environment
 .env
 venv/
 
@@ -27,7 +24,3 @@ Thumbs.db
 .idea/
 *.swp
 *~
-*.save
-.claude/worktrees/
-.claude/a.txt
-New folder/gui/stitch_orange_terminal_dashboard/

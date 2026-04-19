@@ -5,6 +5,16 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+- `helo runtime install claude` uses native installer (PowerShell on Windows, curl on Linux/macOS) instead of npm
+- ZAI API key no longer written to `settings.json` — delivered via process env var only at launch time
+- Removed `helo completion` command and `clap_complete` dependency
+
+### Removed
+- `docs/commands/completion.md` — shell completions no longer supported
+
 ## [0.1.6] — 2026-04-19
 
 ### Added

@@ -58,14 +58,13 @@ On first `helo run`, a `settings.json` is written to the env dir.
 }
 ```
 
-**ZAI provider** — always uses the built-in template (ignores user defaults). Generates an `env` block that Claude Code reads at startup:
+**ZAI provider** — always uses the built-in template (ignores user defaults). Generates an `env` block that Claude Code reads at startup. API key (`ANTHROPIC_AUTH_TOKEN`) is delivered via process env var at launch, not stored in settings.json:
 ```json
 {
   "env": {
-    "ANTHROPIC_AUTH_TOKEN": "<api_key from blueprint>",
     "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
     "API_TIMEOUT_MS": "3000000",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": 1,
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "<model>",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "<model>",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "<model>"
@@ -101,7 +100,6 @@ helo defaults show <runtime>                  # show current default
 helo templates list                           # list built-in CLAUDE.md templates
 helo templates show <name>                    # print template content
 helo templates init                           # write templates to config dir
-helo completion <shell>                       # generate shell completions (bash/zsh/fish/powershell)
 helo runtime install <runtime>                # install a runtime (claude/pi/opencode)
 helo runtime uninstall <runtime>              # uninstall a runtime
 helo runtime list                             # show installed runtimes and versions
@@ -219,12 +217,14 @@ Templates: `coding` (coding agent), `assistant` (general), `devops` (sysadmin).
 Install/uninstall AI runtimes from within helo:
 
 ```
-helo runtime install claude     # npm install -g @anthropic-ai/claude-code
+helo runtime install claude     # native installer (curl/irm)
 helo runtime install pi         # npm install -g @anthropic-ai/pi
 helo runtime install opencode   # go install github.com/opencode-ai/opencode
 helo runtime uninstall claude
 helo runtime list               # show installed runtimes and versions
 ```
+
+`claude` uses the official native installer — PowerShell `irm` on Windows, `curl | bash` on Linux/macOS. Requires `npm` for pi, `go` for opencode.
 
 Requires `npm` (for claude/pi) or `go` (for opencode) on PATH.
 
@@ -239,15 +239,6 @@ helo clean --global claude  # remove ~/.claude (requires typing 'yes')
 ```
 
 `--global` requires explicit `yes` confirmation — protects accidental global wipe.
-
-## Shell completions
-
-```
-helo completion bash       # bash
-helo completion zsh        # zsh
-helo completion fish       # fish
-helo completion powershell # PowerShell
-```
 
 ## Self-update
 

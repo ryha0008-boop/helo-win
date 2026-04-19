@@ -514,16 +514,6 @@ fn add_allows_hyphens_and_underscores() {
     assert!(out.contains("Added blueprint 'my-agent_v2'"));
 }
 
-// ── completion ───────────────────────────────────────────────────────────────
-
-#[test]
-fn completion_bash() {
-    let cfg = tempfile::tempdir().unwrap();
-    let (out, _, code) = helo(cfg.path(), &["completion", "bash"]);
-    assert_eq!(code, Some(0));
-    assert!(out.contains("helo"));
-}
-
 // ── list --json has_key ──────────────────────────────────────────────────────
 
 #[test]

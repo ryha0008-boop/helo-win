@@ -91,7 +91,7 @@ helo launches other AI agent runtimes — you need at least one:
 
 | Runtime | Install |
 |---------|---------|
-| claude | `npm install -g @anthropic-ai/claude-code` or `helo runtime install claude` |
+| claude | `helo runtime install claude` (native installer) |
 | pi | `npm install -g @anthropic-ai/pi` or `helo runtime install pi` |
 | opencode | `go install github.com/opencode-ai/opencode@latest` or `helo runtime install opencode` |
 

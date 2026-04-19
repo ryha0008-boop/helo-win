@@ -16,7 +16,7 @@ helo supports three AI agent runtimes, each with its own isolation mechanism.
 **Env vars set:**
 - `CLAUDE_CONFIG_DIR` — always
 - `ANTHROPIC_API_KEY` — non-ZAI providers with a key
-- `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_DEFAULT_*_MODEL` — ZAI provider
+- `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_DEFAULT_*_MODEL` — ZAI provider (set as process env vars at launch, not in settings.json)
 
 ## pi
 

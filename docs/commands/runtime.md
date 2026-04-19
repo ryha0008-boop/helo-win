@@ -14,13 +14,14 @@ helo runtime list                 # show installed runtimes and versions
 
 | Runtime | Install command |
 |---------|----------------|
-| `claude` | `npm install -g @anthropic-ai/claude-code` |
+| `claude` | native installer (PowerShell on Windows, curl on Linux/macOS) |
 | `pi` | `npm install -g @anthropic-ai/pi` |
 | `opencode` | `go install github.com/opencode-ai/opencode@latest` |
 
 ## Requirements
 
-- `npm` in PATH for claude and pi
+- Claude uses the official native installer — no prerequisites
+- `npm` in PATH for pi
 - `go` in PATH for opencode
 
 ## Examples

@@ -5,7 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [Unreleased]
+## [0.1.7] — 2026-04-19
 
 ### Changed
 - `helo runtime install claude` uses native installer (PowerShell on Windows, curl on Linux/macOS) instead of npm

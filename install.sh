@@ -36,6 +36,7 @@ chmod +x "${TMP}"
 
 echo "  installing to ${DEST}..."
 sudo cp "${TMP}" "${DEST}"
+sudo chmod +x "${DEST}"
 rm -f "${TMP}"
 
 echo "  done! $(${DEST} --version)"

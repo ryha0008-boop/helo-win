@@ -48,21 +48,30 @@ Close and reopen your terminal, then run `helo init`.
 </details>
 
 <details>
-<summary>Linux / macOS</summary>
+<summary>Linux</summary>
 
 ```bash
-# Move to a folder on your PATH
-mv helo-x86_64-linux ~/.local/bin/helo        # Linux
-mv helo-aarch64-macos ~/.local/bin/helo       # macOS Apple Silicon
-mv helo-x86_64-macos ~/.local/bin/helo        # macOS Intel
+# One-liner install (requires curl)
+curl -fsSL https://raw.githubusercontent.com/ryha0008-boop/helo-win/master/install.sh | bash
+```
 
-# Make it executable
+Or manually:
+
+```bash
+mv helo-x86_64-linux ~/.local/bin/helo
 chmod +x ~/.local/bin/helo
+```
 
-# If ~/.local/bin isn't on your PATH yet:
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc   # bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc    # zsh
-source ~/.bashrc  # or ~/.zshrc
+Then run `helo init`.
+</details>
+
+<details>
+<summary>macOS</summary>
+
+```bash
+mv helo-aarch64-macos ~/.local/bin/helo    # Apple Silicon
+mv helo-x86_64-macos ~/.local/bin/helo     # Intel
+chmod +x ~/.local/bin/helo
 ```
 
 Then run `helo init`.
@@ -80,9 +89,9 @@ This walks you through installing runtimes, setting API keys, and creating your 
 
 ## Concepts
 
-**Blueprint** — a reusable AI agent identity. Has a name, runtime, provider, model, and optional API key. Stored globally in helo's config.
+**Blueprint** — a reusable AI agent identity. Has a name, runtime, provider, model, and optional API key. Stored globally in helo's config. Set-and-forget — create variations as needed.
 
-**Instance** — a blueprint placed into a project directory. Gets its own isolated config folder (`.claude-env-<name>/`, `.pi-env-<name>/`, etc.) with its own `settings.json`, memory, and CLAUDE.md persona.
+**Instance** — a blueprint placed into a project directory. Gets its own isolated config folder (`.claude-env-<name>/`, `.pi-env-<name>/`, etc.) with its own `settings.json`, memory, and CLAUDE.md persona. Editable after creation — change provider, model, API key, or toggle hooks without recreating.
 
 ---
 
@@ -90,7 +99,7 @@ This walks you through installing runtimes, setting API keys, and creating your 
 
 ```
 # Create a blueprint
-helo add myagent --runtime claude --provider anthropic --model claude-sonnet-4-5
+helo add myagent --runtime claude --provider anthropic --model sonnet
 
 # Run it in your project directory
 cd my-project
@@ -103,7 +112,20 @@ helo run myagent -p "explain this codebase"
 helo run myagent --resume
 ```
 
-Or just type `helo` for interactive mode.
+Or just type `helo` for interactive mode:
+
+```
+── helo v0.1.8 ──────────────────────────────────
+
+  1  dev-agent  (claude / anthropic / sonnet [coding])
+  2  zai-agent  (claude / zai / glm-5.1)
+
+  a  add blueprint     d  delete blueprint
+  e  edit instance     h  sessions (history)
+  k  keys              s  status
+  c  clean runtime     t  templates
+  q  quit
+```
 
 ---
 
@@ -127,20 +149,45 @@ helo edit <name> [--runtime] [--provider] [--model] [--api-key] [--claude-md]
 helo list                               # list blueprints
 helo remove <name>
 helo run [name] [--resume [id]] [-p <prompt>] [-- extra args]
-helo status
+helo status                             # config path + API key presence
 helo key <name> <key>                   # set API key on a blueprint
 helo keys set <provider> <key>          # global key (auto-applied on add)
 helo keys list
 helo keys remove <provider>
-helo defaults set <runtime> <file>      # default settings.json for new envs
 helo templates list                     # built-in CLAUDE.md personas
 helo templates show <name>
+helo sessions [name]                    # list conversation sessions
 helo runtime install <runtime>
 helo runtime list
 helo clean [name] [--global]
-helo completion <shell>                 # bash/zsh/fish/powershell
 helo update                             # self-update from GitHub releases
 ```
+
+---
+
+## Instance editing
+
+Change provider, model, API key, or toggle hooks on existing instances without recreating them. Press `e` in interactive mode or edit via CLI:
+
+```
+helo edit myagent --model opus
+helo edit myagent --provider zai --model glm-5.1
+helo edit myagent --api-key ""
+```
+
+Settings.json is regenerated on the next `helo run` (or when saving in interactive mode).
+
+---
+
+## Hook toggling
+
+Each instance has three hooks that can be toggled independently:
+
+- **Stop** — auto-commits tracked files + detects doc staleness at end of each turn
+- **UserPromptSubmit** — injects staleness reminders + sub-agent guidance at start of each turn
+- **PostCompact** — saves compaction summaries to `contextdb/` after auto/manual compaction
+
+All default to enabled. Toggle per-instance via interactive `e` → instance editor.
 
 ---
 
@@ -164,7 +211,7 @@ Keys are stored in helo's config and automatically applied when you `helo add` a
 Give an agent a role by attaching a CLAUDE.md template:
 
 ```
-helo add reviewer --runtime claude --provider anthropic --model claude-sonnet-4-5 --claude-md coding
+helo add reviewer --runtime claude --provider anthropic --model sonnet --claude-md coding
 ```
 
 Built-in templates: `coding`, `assistant`, `devops`. Or pass a path to your own file.

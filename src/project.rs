@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 use crate::models::{Instance, InstanceHooks};
+use crate::providers;
 
 /// Minimal JSON string encoder — escapes the chars required by RFC 8259.
 pub fn json_str(s: &str) -> String {
@@ -59,7 +60,7 @@ pub fn save_instance(env_dir: &Path, inst: &Instance, claude_md: Option<&str>) -
     }
 
     // Claude reads settings from CLAUDE_CONFIG_DIR/settings.json.
-    if inst.runtime == "claude" {
+    if providers::runtime_has_settings_json(&inst.runtime) {
         let settings_path = env_dir.join("settings.json");
         if !settings_path.exists() {
             let content = generate_settings_content(inst)?;
@@ -111,42 +112,52 @@ fn build_hooks_json(hooks: &InstanceHooks) -> String {
 
 /// Generate settings.json content for an instance.
 fn generate_settings_content(inst: &Instance) -> Result<String> {
-    if inst.provider == "zai" {
-        Ok(build_zai_settings(inst))
-    } else {
-        Ok(build_default_settings(inst))
+    match providers::find_provider(&inst.provider) {
+        Some(p) if p.base_url.is_some() => Ok(build_env_settings(inst, p)),
+        _ => Ok(build_default_settings(inst)),
     }
 }
 
-/// Build settings.json for ZAI provider — includes env block with API routing.
-fn build_zai_settings(inst: &Instance) -> String {
+/// Build settings.json for providers that route through a proxy (base_url is set).
+/// Generates an "env" block from the provider definition — no provider-specific branching needed.
+fn build_env_settings(inst: &Instance, p: &providers::ProviderDef) -> String {
     let hooks_json = build_hooks_json(&inst.hooks);
-    format!(
+    let mut env_pairs: Vec<String> = Vec::new();
+
+    if let Some(url) = p.base_url {
+        env_pairs.push(format!("    \"ANTHROPIC_BASE_URL\": {}", json_str(url)));
+    }
+    for (k, v) in p.extra_env {
+        env_pairs.push(format!("    {}: {}", json_str(k), json_str(v)));
+    }
+    if p.set_model_defaults {
+        let m = json_str(&inst.model);
+        env_pairs.push(format!("    \"ANTHROPIC_DEFAULT_HAIKU_MODEL\": {m}"));
+        env_pairs.push(format!("    \"ANTHROPIC_DEFAULT_SONNET_MODEL\": {m}"));
+        env_pairs.push(format!("    \"ANTHROPIC_DEFAULT_OPUS_MODEL\": {m}"));
+    }
+
+    let mut out = format!(
         r#"{{
   "env": {{
-    "ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
-    "API_TIMEOUT_MS": "3000000",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": {},
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": {},
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": {}
+{}
   }},
   "skipDangerousModePermissionPrompt": true,
   "permissions": {{
     "defaultMode": "bypassPermissions"
   }},
-  "hooks": {},
-  "effortLevel": "high"
-}}
-"#,
-        json_str(&inst.model),
-        json_str(&inst.model),
-        json_str(&inst.model),
+  "hooks": {}"#,
+        env_pairs.join(",\n"),
         hooks_json
-    )
+    );
+    if let Some(level) = p.effort_level {
+        out.push_str(&format!(",\n  \"effortLevel\": {}", json_str(level)));
+    }
+    out.push_str("\n}\n");
+    out
 }
 
-/// Build default settings.json for non-ZAI Claude envs.
+/// Build settings.json for native providers (no proxy, no env block).
 fn build_default_settings(inst: &Instance) -> String {
     let hooks_json = build_hooks_json(&inst.hooks);
     format!(
@@ -172,9 +183,9 @@ pub fn save_instance_toml(env_dir: &Path, inst: &Instance) -> Result<()> {
 }
 
 /// Regenerate settings.json for an existing instance, respecting current hook toggles.
-/// Only applies to claude instances. Returns false if non-claude.
+/// Only applies to runtimes that use settings.json. Returns false otherwise.
 pub fn regenerate_settings(env_dir: &Path, inst: &Instance) -> Result<bool> {
-    if inst.runtime != "claude" {
+    if !providers::runtime_has_settings_json(&inst.runtime) {
         return Ok(false);
     }
     let content = generate_settings_content(inst)?;

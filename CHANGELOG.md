@@ -7,6 +7,14 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- Built-in provider table (`providers.rs`) — openrouter and deepseek now have native support (env block + correct key env var); adding new providers requires one row, no code changes
+- Built-in runtime table — runtimes declare `has_settings_json`; new runtimes (plandex, aider, etc.) need one row
+
+### Changed
+- Provider logic centralised: launch env vars, settings.json generation, and key resolution all driven by `ProviderDef` table instead of scattered `if provider == "zai"` / match arms
+- `gui/` directory removed — GUI project lives in its own repo (shelly)
+
 ## [0.1.8] — 2026-04-20
 
 ### Fixed

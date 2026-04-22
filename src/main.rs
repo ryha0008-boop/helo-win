@@ -1,6 +1,7 @@
 mod config;
 mod models;
 mod project;
+mod providers;
 
 // ── Built-in CLAUDE.md templates ────────────────────────────────────────────
 
@@ -949,9 +950,8 @@ fn cmd_run(name: Option<String>, resume: Option<Option<String>>, prompt: Option<
                 .map(Some)
                 .unwrap_or_else(|| cfg.keys.get(&bp.provider).map(|s| s.as_str()))
                 .map(str::to_string)
-                .or_else(|| match bp.provider.as_str() {
-                    "zai" => std::env::var("ZAI_API_KEY").ok().filter(|v| !v.is_empty()),
-                    _ => std::env::var("ANTHROPIC_API_KEY").ok().filter(|v| !v.is_empty()),
+                .or_else(|| {
+                    std::env::var(provider_key_env(&bp.provider)).ok().filter(|v| !v.is_empty())
                 });
             if !env_dir.exists() {
                 let inst = models::Instance {
@@ -1035,24 +1035,21 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
             let mut c = std::process::Command::new("claude");
             c.env("CLAUDE_CONFIG_DIR", env_dir);
 
-            match provider {
-                "zai" => {
-                    c.env("ANTHROPIC_BASE_URL", "https://api.z.ai/api/anthropic");
-                    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
-                        c.env("ANTHROPIC_AUTH_TOKEN", key);
-                    }
-                    // Clear any inherited ANTHROPIC_API_KEY — ZAI uses AUTH_TOKEN, and an
-                    // inherited key causes Claude Code to prompt "detected custom API key".
-                    c.env_remove("ANTHROPIC_API_KEY");
-                    c.env("ANTHROPIC_DEFAULT_HAIKU_MODEL", model);
-                    c.env("ANTHROPIC_DEFAULT_SONNET_MODEL", model);
-                    c.env("ANTHROPIC_DEFAULT_OPUS_MODEL", model);
-                }
-                _ => {
-                    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
-                        c.env("ANTHROPIC_API_KEY", key);
-                    }
-                }
+            let pdef = providers::find_provider(provider);
+            if pdef.map_or(false, |p| p.clear_api_key) {
+                c.env_remove("ANTHROPIC_API_KEY");
+            }
+            if let Some(url) = pdef.and_then(|p| p.base_url) {
+                c.env("ANTHROPIC_BASE_URL", url);
+            }
+            let auth_var = pdef.map_or("ANTHROPIC_API_KEY", |p| p.auth_var);
+            if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+                c.env(auth_var, key);
+            }
+            if pdef.map_or(false, |p| p.set_model_defaults) {
+                c.env("ANTHROPIC_DEFAULT_HAIKU_MODEL", model);
+                c.env("ANTHROPIC_DEFAULT_SONNET_MODEL", model);
+                c.env("ANTHROPIC_DEFAULT_OPUS_MODEL", model);
             }
 
             if let Some(r) = resume {
@@ -1127,18 +1124,7 @@ fn launch(runtime: &str, provider: &str, model: &str, api_key: Option<&str>, env
 }
 
 fn provider_key_env(provider: &str) -> String {
-    match provider {
-        "openrouter" => "OPENROUTER_API_KEY",
-        "anthropic"  => "ANTHROPIC_API_KEY",
-        "openai"     => "OPENAI_API_KEY",
-        "groq"       => "GROQ_API_KEY",
-        "deepseek"   => "DEEPSEEK_API_KEY",
-        "zai"        => "ZAI_API_KEY",
-        "mistral"    => "MISTRAL_API_KEY",
-        "gemini"     => "GEMINI_API_KEY",
-        other        => return format!("{}_API_KEY", other.to_uppercase()),
-    }
-    .to_string()
+    providers::provider_key_env(provider)
 }
 
 fn cmd_clean(name: Option<String>, global: bool, yes: bool) -> Result<()> {
